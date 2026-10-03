@@ -1,0 +1,732 @@
+// Euphoriax dashboard - plain JS, no build step.
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const view = $('#view');
+const PLATFORMS = ['tiktok', 'youtube', 'instagram', 'twitter'];
+const PLATFORM_NAMES = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', twitter: 'X', patreon: 'Patreon', discord: 'Discord' };
+
+// ---------- helpers ----------
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (n) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return '-';
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1) + 'M';
+  if (a >= 1e4) return (n / 1e3).toFixed(a >= 1e5 ? 0 : 1) + 'K';
+  return Math.round(n).toLocaleString('en-US');
+};
+const money = (cents) => '$' + Math.round((cents ?? 0) / 100).toLocaleString('en-US');
+const signed = (n) => (n === null || n === undefined ? '' : (n >= 0 ? '+' : '') + fmt(n));
+const ago = (ts) => {
+  if (!ts) return 'never';
+  const s = (Date.now() - ts) / 1000;
+  const fut = s < 0;
+  const a = Math.abs(s);
+  const t = a < 60 ? `${Math.round(a)}s` : a < 3600 ? `${Math.round(a / 60)}m` : a < 86400 ? `${Math.round(a / 3600)}h` : `${Math.round(a / 86400)}d`;
+  return fut ? `in ${t}` : `${t} ago`;
+};
+const when = (ts) => ts ? new Date(ts).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+const pname = (p) => PLATFORM_NAMES[p] ?? p;
+
+async function api(path, opts = {}) {
+  const init = { ...opts, headers: { ...(opts.headers ?? {}) } };
+  if (opts.json !== undefined) {
+    init.method = init.method ?? 'POST';
+    init.headers['content-type'] = 'application/json';
+    init.body = JSON.stringify(opts.json);
+  }
+  const res = await fetch(path.replace(/^\//, ''), init);
+  if (res.status === 401 && !path.includes('login')) { showLogin(); throw new Error('login required'); }
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  return data;
+}
+
+function toast(msg) {
+  let el = $('#toast');
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; document.body.append(el); }
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => (el.hidden = true), 3500);
+}
+
+const statusBadge = (s) => {
+  const icon = { online: '●', degraded: '◐', offline: '✕', unknown: '?', not_configured: '–' }[s] ?? '?';
+  const label = { not_configured: 'not set up' }[s] ?? s;
+  return `<span class="status ${esc(s)}">${icon} ${esc(label)}</span>`;
+};
+
+function bar(value, max, tip) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return `<div class="bar" data-tip="${esc(tip ?? fmt(value))}"><span style="width:${pct}%"></span></div>`;
+}
+
+// Hover tooltips for anything with data-tip.
+const tip = $('#tooltip');
+document.addEventListener('mousemove', (e) => {
+  const el = e.target.closest?.('[data-tip]');
+  if (!el) { tip.hidden = true; return; }
+  tip.textContent = el.dataset.tip;
+  tip.hidden = false;
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top = e.clientY + 14 + 'px';
+});
+
+const empty = (text) => `<div class="empty">${text}</div>`;
+
+// ---------- auth ----------
+function showLogin() {
+  $('#app').hidden = true;
+  $('#login').hidden = false;
+}
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  try {
+    await api('/api/login', { json: { name: f.get('name'), password: f.get('password') } });
+    $('#login').hidden = true;
+    start();
+  } catch (err) {
+    $('#login-error').textContent = err.message;
+  }
+});
+$('#logout').onclick = async () => { await api('/api/logout', { json: {} }); location.reload(); };
+$('#refresh').onclick = async (e) => {
+  e.target.disabled = true;
+  e.target.textContent = 'Refreshing…';
+  try { await api('/api/collect', { json: {} }); toast('All data refreshed'); route(); }
+  catch (err) { toast(err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Refresh'; }
+};
+
+// ---------- router ----------
+const pages = { overview, incoming, ai, outgoing, build, status, setup };
+let timer = null;
+
+async function route() {
+  clearInterval(timer);
+  const [name, sub] = (location.hash.slice(1) || 'overview').split('/');
+  const page = pages[name] ?? overview;
+  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${name}`));
+  try {
+    await page(sub);
+  } catch (err) {
+    if (err.message !== 'login required') view.innerHTML = `<div class="card strong">Something went wrong: ${esc(err.message)}</div>`;
+  }
+}
+window.addEventListener('hashchange', route);
+
+async function updateHealthPill() {
+  try {
+    const svcs = await api('/api/services');
+    const down = svcs.filter((s) => s.status === 'offline');
+    const pill = $('#health-pill');
+    pill.textContent = down.length ? `✕ ${down.length} offline` : '● all systems online';
+    pill.className = 'pill' + (down.length ? ' bad' : '');
+    pill.title = down.map((s) => s.label ?? s.name).join(', ');
+  } catch { /* ignore */ }
+}
+
+async function start() {
+  try { await api('/api/me'); } catch { return; }
+  $('#app').hidden = false;
+  route();
+  updateHealthPill();
+  setInterval(updateHealthPill, 60_000);
+}
+start();
+
+// ======================================================================
+// OVERVIEW
+// ======================================================================
+async function overview() {
+  const d = await api('/api/overview');
+  const m = d.metrics;
+  const totalViews7 = Object.values(d.views7d).reduce((a, p) => a + p.gained, 0);
+  const totalViews1 = Object.values(d.views1d).reduce((a, p) => a + p.gained, 0);
+  const followers = ['tiktok', 'youtube', 'instagram', 'twitter'].reduce((a, p) => {
+    const k = m[p]?.followers ?? m[p]?.subscribers;
+    return { v: a.v + (k?.value ?? 0), c: a.c + (k?.change7d ?? 0) };
+  }, { v: 0, c: 0 });
+  const down = d.services.filter((s) => s.status === 'offline');
+  const report = d.report?.json;
+  const running = d.jobs.find((j) => j.status === 'running');
+  const queued = d.jobs.filter((j) => j.status === 'queued');
+  const machines = d.services.filter((s) => s.kind === 'machine');
+  const maxContent = Math.max(1, ...d.topContent.map((c) => c.gained));
+
+  view.innerHTML = `
+    ${down.length ? `<div class="card strong" style="margin-bottom:16px">
+      <div class="spread"><strong>✕ ${down.length} service${down.length > 1 ? 's' : ''} offline:</strong>
+      <span>${down.map((s) => esc(s.label ?? s.name)).join(' · ')}</span><a href="#status">See status →</a></div></div>` : ''}
+
+    <div class="kpis">
+      ${kpi('Views (7 days)', fmt(totalViews7), `${fmt(totalViews1)} in last 24h`)}
+      ${kpi('Followers (all socials)', fmt(followers.v), `${signed(followers.c)} this week`)}
+      ${kpi('Patreon / month', money(m.patreon?.monthly_revenue_cents?.value), `${signed(m.patreon?.monthly_revenue_cents?.change7d / 100)} $ this week`)}
+      ${kpi('Patrons', fmt(m.patreon?.patrons?.value), `${signed(m.patreon?.patrons?.change7d)} this week`)}
+      ${kpi('Sales (7 days)', money(d.sales7d.cents), `${d.sales7d.n} sales`)}
+      ${kpi('Discord members', fmt(m.discord?.members?.value), `${fmt(m.discord?.online?.value)} online · ${d.signals24h} msgs/24h`)}
+    </div>
+
+    <div class="grid g3">
+      <div class="card strong span2">
+        <div class="spread"><h2>Today · AI brief</h2>
+          <span class="small muted">${d.report ? `${ago(d.report.ts)}` : ''} · <a href="#ai">Full report</a></span></div>
+        ${report ? `
+          <div class="headline">${esc(report.headline)}</div>
+          <p class="muted">${esc(report.summary)}</p>
+          <div class="grid g2">
+            <div><h3>Focus today</h3><ul class="bullets">${(report.todayFocus ?? []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+            <div><h3>People want</h3><ul class="bullets">${(report.audienceWants ?? []).slice(0, 4).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+          </div>` : empty(d.lastRun?.status === 'failed' ? `Last analysis failed: ${esc(d.lastRun.error)}` : 'No AI report yet. Go to <a href="#ai">AI</a> and press "Run analysis now".')}
+      </div>
+
+      <div class="card">
+        <div class="spread"><h2>Build machine</h2><a class="small" href="#build">Queue →</a></div>
+        ${machines.length ? machines.map((s) => `<div class="spread"><strong>${esc(s.label ?? s.name)}</strong>${statusBadge(s.status)}</div>`).join('') : `<div class="muted small">No machine has connected yet.</div>`}
+        <div style="margin-top:12px">
+          ${running ? `<div class="small muted">Building now · started ${ago(running.started_at)}</div><div><strong>${esc(running.title)}</strong></div>` : '<div class="muted">Idle</div>'}
+        </div>
+        <div class="small muted" style="margin-top:12px">Up next (${queued.length})</div>
+        <ol style="margin:4px 0 0;padding-left:18px">${queued.slice(0, 4).map((j) => `<li>${esc(j.title)}</li>`).join('') || '<li class="muted">Queue empty</li>'}</ol>
+      </div>
+    </div>
+
+    <h2 class="section-title">Ideas waiting for a decision</h2>
+    ${d.ideas.length ? `<div class="grid g3">${d.ideas.map(ideaCard).join('')}</div>` : empty('No new ideas. They come in with each daily AI report.')}
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <div class="spread"><h2>What's getting views · 7 days</h2><a class="small" href="#incoming/content">All content →</a></div>
+        <div class="table-wrap"><table>
+          <tr><th>Content</th><th></th><th class="num">+Views</th><th class="num">Total</th></tr>
+          ${d.topContent.map((c) => `<tr>
+            <td class="title"><span class="tag">${pname(c.platform)}</span><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a>
+              ${bar(c.gained, maxContent, `${fmt(c.gained)} views gained in 7 days`)}</td><td></td>
+            <td class="num">${fmt(c.gained)}</td><td class="num muted">${fmt(c.views)}</td></tr>`).join('') || `<tr><td colspan="4">${empty('No content data yet.')}</td></tr>`}
+        </table></div>
+        <h3 style="margin-top:14px">Views by platform · 7 days</h3>
+        ${platformBars(d.views7d)}
+      </div>
+
+      <div class="card">
+        <div class="spread"><h2>What's selling</h2><a class="small" href="#incoming/sales">Sales →</a></div>
+        ${productTable(d.products)}
+        <div class="spread" style="margin-top:16px"><h2>UEFN trends</h2><a class="small" href="#incoming/trends">Trends →</a></div>
+        ${trendTable(d.trends?.data?.topTrends?.slice(0, 5))}
+      </div>
+
+      <div class="card">
+        <div class="spread"><h2>Community asks · 7 days</h2><a class="small" href="#incoming/community">Messages →</a></div>
+        ${keywordBars(d.keywords)}
+      </div>
+
+      <div class="card">
+        <div class="spread"><h2>Outgoing posts</h2><a class="small" href="#outgoing">Upload →</a></div>
+        ${postList(d.posts)}
+      </div>
+
+      <div class="card">
+        <div class="spread"><h2>Services</h2><a class="small" href="#status">All →</a></div>
+        <div class="svc-grid">${d.services.filter((s) => s.status !== 'not_configured').map(svcCard).join('') || empty('Nothing reporting yet.')}</div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-bottom:8px">Activity</h2>
+        <ul class="list small">${d.activity.map((a) => `<li class="spread"><span>${esc(a.text)}</span><span class="muted">${esc(a.who ?? '')} · ${ago(a.ts)}</span></li>`).join('') || `<li class="muted">Nothing yet</li>`}</ul>
+      </div>
+    </div>`;
+  bindIdeaButtons();
+  timer = setInterval(() => { if (!document.hidden && location.hash.replace('#', '') in { '': 1, overview: 1 }) overview().catch(() => {}); }, 60_000);
+}
+
+const kpi = (label, value, delta) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta ?? ''}</div></div>`;
+
+function platformBars(byPlatform) {
+  const rows = Object.entries(byPlatform).sort((a, b) => b[1].gained - a[1].gained);
+  if (!rows.length) return empty('No data yet.');
+  const max = Math.max(1, ...rows.map(([, v]) => v.gained));
+  return rows.map(([p, v]) => `<div class="bar-row"><span>${pname(p)}</span>${bar(v.gained, max, `${pname(p)}: ${fmt(v.gained)} views over ${v.posts} posts`)}<span class="num">${fmt(v.gained)}</span></div>`).join('');
+}
+
+function keywordBars(words) {
+  if (!words?.length) return empty('No Discord messages yet. Point your Discord tools at /api/ingest/signal.');
+  const max = Math.max(...words.map((w) => w.count));
+  return words.map((w) => `<div class="bar-row"><span>${esc(w.word)}</span>${bar(w.count, max, `"${w.word}" in ${w.count} messages`)}<span class="num">${w.count}</span></div>`).join('');
+}
+
+function productTable(products) {
+  if (!products?.length) return empty('No products yet. Connect Patreon in Setup.');
+  const max = Math.max(1, ...products.map((p) => p.revenue_cents));
+  return `<div class="table-wrap"><table><tr><th>Tier / product</th><th class="num">Price</th><th class="num">Members</th><th class="num">Revenue/mo</th></tr>
+    ${products.map((p) => `<tr><td class="title">${esc(p.name)}${bar(p.revenue_cents, max, `${money(p.revenue_cents)} / month`)}</td>
+      <td class="num">${money(p.price_cents)}</td><td class="num">${fmt(p.members)}</td><td class="num">${money(p.revenue_cents)}</td></tr>`).join('')}
+  </table></div>`;
+}
+
+function trendTable(trends) {
+  if (!trends?.length) return empty('No trend data. Set UEFN_TRENDS_URL in Setup.');
+  return `<div class="table-wrap"><table><tr><th>#</th><th>Trend</th><th>Stage</th><th class="num">Momentum</th><th class="num">UEFN fit</th></tr>
+    ${trends.map((t) => `<tr><td class="muted">${String(t.rank).padStart(2, '0')}</td><td><strong>${esc(t.name)}</strong> ${esc(t.arrow ?? '')}
+      <div class="small muted">${(t.platforms ?? []).map(esc).join(' · ')}</div></td>
+      <td><span class="tag">${esc(t.lifecycle ?? '')}</span></td><td class="num">${t.score ?? '-'}</td><td class="num">${t.opportunityScore ?? '-'}</td></tr>`).join('')}
+  </table></div>`;
+}
+
+function postList(posts) {
+  if (!posts?.length) return empty('Nothing scheduled.');
+  return `<ul class="list">${posts.map((p) => `<li class="spread"><div><strong>${esc(p.title)}</strong>
+    <div class="small muted">${p.platforms.split(',').map(pname).join(' · ')} · ${when(p.scheduled_at)}</div></div>
+    <span class="tag ${p.status === 'failed' ? 'dark' : ''}">${esc(p.status)}</span></li>`).join('')}</ul>`;
+}
+
+const svcCard = (s) => `<div class="svc ${esc(s.status)}" data-tip="${esc(s.detail ?? '')}">
+  <div class="spread"><span class="name">${esc(s.label ?? s.name)}</span>${statusBadge(s.status)}</div>
+  <div class="detail">${esc(s.detail ?? '')}</div>
+  <div class="detail">${s.kind} · ${s.last_seen ? `seen ${ago(s.last_seen)}` : 'never seen'}</div></div>`;
+
+function ideaCard(i) {
+  return `<div class="idea" data-idea="${i.id}">
+    <div class="spread"><span><span class="tag dark">${esc(i.type)}</span><span class="small muted">${ago(i.ts)}</span></span>
+      <span class="score" data-tip="Expected value score from the AI (0-100)">${i.score ?? '-'}</span></div>
+    <h3 style="margin:6px 0 4px">${esc(i.title)}</h3>
+    <div class="small muted">${esc(i.why ?? '')}</div>
+    ${i.prompt ? `<details style="margin-top:6px"><summary>Build prompt</summary><div class="mono log" style="margin-top:6px">${esc(i.prompt)}</div></details>` : ''}
+    ${i.caption ? `<details style="margin-top:6px"><summary>Caption</summary><div style="margin-top:6px">${esc(i.caption)}</div></details>` : ''}
+    <div class="row" style="margin-top:10px">
+      ${i.status === 'new' ? `
+        ${i.type === 'system' ? `<button class="primary" data-act="queue">Send to build queue</button>` : ''}
+        ${i.type === 'video' ? `<button class="primary" data-act="post">Make this post</button>` : ''}
+        ${i.type === 'product' ? `<button data-act="done">Done</button>` : ''}
+        <button data-act="dismiss">Dismiss</button>` : `<span class="tag">${esc(i.status)}</span>`}
+    </div></div>`;
+}
+
+function bindIdeaButtons() {
+  view.querySelectorAll('[data-idea] [data-act]').forEach((btn) => {
+    btn.onclick = async () => {
+      const card = btn.closest('[data-idea]');
+      const id = card.dataset.idea;
+      const act = btn.dataset.act;
+      try {
+        if (act === 'queue') { await api(`/api/ideas/${id}/queue`, { json: {} }); toast('Added to the build queue'); }
+        if (act === 'dismiss') await api(`/api/ideas/${id}`, { json: { status: 'dismissed' } });
+        if (act === 'done') await api(`/api/ideas/${id}`, { json: { status: 'posted' } });
+        if (act === 'post') {
+          const ideas = await api('/api/ideas');
+          const idea = ideas.find((x) => String(x.id) === id);
+          sessionStorage.setItem('prefillPost', JSON.stringify({ title: idea.title, caption: idea.caption ?? '', idea_id: idea.id }));
+          location.hash = 'outgoing';
+          return;
+        }
+        route();
+      } catch (err) { toast(err.message); }
+    };
+  });
+}
+
+// ======================================================================
+// INCOMING
+// ======================================================================
+async function incoming(sub = 'content') {
+  const tabs = [['content', 'Content & views'], ['sales', 'Sales'], ['community', 'Community'], ['trends', 'UEFN trends'], ['growth', 'Growth']];
+  view.innerHTML = `<div class="tabs">${tabs.map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" onclick="location.hash='incoming/${k}'">${l}</button>`).join('')}</div><div id="sub"></div>`;
+  const el = $('#sub');
+  if (sub === 'content') return contentPage(el);
+  if (sub === 'sales') return salesPage(el);
+  if (sub === 'community') return communityPage(el);
+  if (sub === 'trends') return trendsPage(el);
+  if (sub === 'growth') return growthPage(el);
+}
+
+async function contentPage(el, days = 7, platform = '') {
+  const d = await api(`/api/content?days=${days}&platform=${platform}`);
+  const max = Math.max(1, ...d.items.map((c) => c.gained));
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:12px">
+      <select id="days" style="width:auto">${[1, 7, 30, 90].map((n) => `<option value="${n}" ${n === days ? 'selected' : ''}>Last ${n} day${n > 1 ? 's' : ''}</option>`).join('')}</select>
+      <select id="plat" style="width:auto"><option value="">All platforms</option>${PLATFORMS.map((p) => `<option value="${p}" ${p === platform ? 'selected' : ''}>${pname(p)}</option>`).join('')}</select>
+    </div>
+    <div class="grid g3">
+      <div class="card"><h2 style="margin-bottom:8px">Views gained by platform</h2>${platformBars(d.byPlatform)}</div>
+      <div class="card span2"><h2 style="margin-bottom:8px">How to read this</h2>
+        <p class="small muted" style="margin:0">"+Views" is how many views each post gained in the selected window (from hourly snapshots), so old posts that are still growing show up too.
+        Engagement = (likes + comments + shares) / views. Sort is by views gained.</p></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="table-wrap"><table>
+      <tr><th>Content</th><th>Posted</th><th class="num">+Views</th><th class="num">Views</th><th class="num">Likes</th><th class="num">Comments</th><th class="num">Engagement</th></tr>
+      ${d.items.map((c) => `<tr>
+        <td class="title"><span class="tag">${pname(c.platform)}</span><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title || '(untitled)')}</a>${bar(c.gained, max, `${fmt(c.gained)} views gained`)}</td>
+        <td class="small muted" style="white-space:nowrap">${c.published_at ? ago(c.published_at) : '-'}</td>
+        <td class="num"><strong>${fmt(c.gained)}</strong></td><td class="num">${fmt(c.views)}</td><td class="num">${fmt(c.likes)}</td><td class="num">${fmt(c.comments)}</td>
+        <td class="num">${c.views ? (((c.likes + c.comments + c.shares) / c.views) * 100).toFixed(1) + '%' : '-'}</td></tr>`).join('') || `<tr><td colspan="7">${empty('No content yet. Connect platforms in Setup.')}</td></tr>`}
+    </table></div></div>`;
+  $('#days').onchange = (e) => contentPage(el, Number(e.target.value), platform);
+  $('#plat').onchange = (e) => contentPage(el, days, e.target.value);
+}
+
+async function salesPage(el) {
+  const d = await api('/api/sales');
+  const byProduct = {};
+  for (const s of d.sales) if (s.amount_cents > 0) (byProduct[s.product] ??= { n: 0, cents: 0 }), byProduct[s.product].n++, byProduct[s.product].cents += s.amount_cents;
+  const rows = Object.entries(byProduct).sort((a, b) => b[1].cents - a[1].cents);
+  const max = Math.max(1, ...rows.map(([, v]) => v.cents));
+  el.innerHTML = `
+    <div class="kpis">
+      ${kpi('Monthly revenue', money(d.metrics.monthly_revenue_cents?.value), `${signed((d.metrics.monthly_revenue_cents?.change7d ?? 0) / 100)} $ this week`)}
+      ${kpi('Patrons', fmt(d.metrics.patrons?.value), `${signed(d.metrics.patrons?.change7d)} this week`)}
+      ${kpi('Paid members', fmt(d.metrics.paid_members?.value), '')}
+      ${kpi('New sales (60d)', String(d.sales.filter((s) => s.amount_cents > 0).length), money(d.sales.reduce((a, s) => a + (s.amount_cents ?? 0), 0)))}
+    </div>
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:8px">Tiers & products (current)</h2>${productTable(d.products)}</div>
+      <div class="card"><h2 style="margin-bottom:8px">New sales by product · 60 days</h2>
+        ${rows.length ? rows.map(([name, v]) => `<div class="bar-row"><span>${esc(name)}</span>${bar(v.cents, max, `${v.n} sales · ${money(v.cents)}`)}<span class="num">${money(v.cents)}</span></div>`).join('') : empty('No sales events yet. Add the Patreon webhook (see Setup).')}
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Sales log</h2><div class="table-wrap"><table>
+      <tr><th>When</th><th>Platform</th><th>Product</th><th>Event</th><th class="num">Amount</th></tr>
+      ${d.sales.map((s) => `<tr><td class="small">${when(s.ts)}</td><td>${pname(s.platform)}</td><td>${esc(s.product)}</td><td class="small muted">${esc(s.event)}</td><td class="num">${money(s.amount_cents)}</td></tr>`).join('') || `<tr><td colspan="5">${empty('Nothing yet.')}</td></tr>`}
+    </table></div></div>`;
+}
+
+async function communityPage(el, kind = '') {
+  const d = await api(`/api/signals?days=7&kind=${kind}`);
+  el.innerHTML = `
+    <div class="grid g3">
+      <div class="card"><h2 style="margin-bottom:8px">Most mentioned words · 7 days</h2>${keywordBars(d.keywords.slice(0, 25))}</div>
+      <div class="card span2">
+        <div class="spread"><h2>Messages from Discord tools</h2>
+          <select id="kind" style="width:auto">${['', 'request', 'question', 'feedback', 'message'].map((k) => `<option value="${k}" ${k === kind ? 'selected' : ''}>${k || 'All kinds'}</option>`).join('')}</select></div>
+        <ul class="list">${d.signals.map((s) => `<li><div class="spread small muted"><span><span class="tag">${esc(s.kind)}</span>${esc(s.author ?? '')} in #${esc(s.channel ?? '?')}</span><span>${ago(s.ts)}</span></div>
+          <div>${esc(s.text)}</div></li>`).join('') || `<li>${empty('Nothing yet.')}</li>`}</ul>
+      </div>
+    </div>`;
+  $('#kind').onchange = (e) => communityPage(el, e.target.value);
+}
+
+async function trendsPage(el) {
+  const d = await api('/api/trends');
+  const top = d.top?.data;
+  const report = d.report?.data;
+  el.innerHTML = `
+    <p class="small muted">From the UEFN Trends engine${d.top ? ` · updated ${ago(d.top.ts)}` : ''}.</p>
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:8px">Top trends</h2>${trendTable(top?.topTrends)}</div>
+      <div class="card"><h2 style="margin-bottom:8px">Breakouts</h2>
+        ${(top?.breakouts ?? []).length ? `<ul class="list">${top.breakouts.map((b) => `<li class="spread"><span><strong>${esc(b.name ?? b.title ?? b.slug)}</strong> <span class="small muted">${esc(b.platform ?? '')}</span></span><span class="num">${b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No breakouts.')}
+        <h2 style="margin:16px 0 8px">Memes</h2>
+        ${(top?.memes ?? []).length ? `<ul class="list">${top.memes.map((b) => `<li class="spread"><span>${esc(b.name ?? b.title ?? b.slug)}</span><span class="num">${b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No memes.')}
+      </div>
+    </div>
+    ${report ? `<div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest trend report</h2><div class="log mono">${esc(typeof report === 'string' ? report : report.text ?? report.content ?? JSON.stringify(report, null, 2))}</div></div>` : ''}`;
+}
+
+async function growthPage(el) {
+  const series = [['youtube', 'subscribers'], ['tiktok', 'followers'], ['instagram', 'followers'], ['twitter', 'followers'], ['patreon', 'patrons'], ['patreon', 'monthly_revenue_cents'], ['discord', 'members']];
+  const data = await Promise.all(series.map(([p, k]) => api(`/api/metrics/history?platform=${p}&key=${k}&days=30`)));
+  el.innerHTML = `<p class="small muted">Last 30 days. One small chart per number so each has its own scale.</p>
+    <div class="grid g3">${series.map(([p, k], i) => sparkCard(`${pname(p)} · ${k.replace(/_cents$/, '').replace(/_/g, ' ')}`, data[i], k.endsWith('_cents'))).join('')}</div>`;
+}
+
+function sparkCard(title, points, isMoney) {
+  const f = (v) => (isMoney ? money(v) : fmt(v));
+  if (points.length < 2) return `<div class="card"><h3>${esc(title)}</h3>${empty('Not enough data yet.')}</div>`;
+  const W = 300, H = 70, pad = 4;
+  const xs = points.map((p) => p.ts), ys = points.map((p) => p.value);
+  const [x0, x1] = [Math.min(...xs), Math.max(...xs)], [y0, y1] = [Math.min(...ys), Math.max(...ys)];
+  const sx = (x) => pad + ((x - x0) / (x1 - x0 || 1)) * (W - pad * 2);
+  const sy = (y) => H - pad - ((y - y0) / (y1 - y0 || 1)) * (H - pad * 2);
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${sx(p.ts).toFixed(1)},${sy(p.value).toFixed(1)}`).join('');
+  const last = points.at(-1), first = points[0];
+  // Invisible wide hit areas per point carry the tooltip.
+  const hits = points.map((p, i) => {
+    const prev = i ? sx(points[i - 1].ts) : sx(p.ts);
+    const next = i < points.length - 1 ? sx(points[i + 1].ts) : sx(p.ts);
+    return `<rect x="${(prev + sx(p.ts)) / 2}" y="0" width="${Math.max(2, (next - prev) / 2)}" height="${H}" fill="transparent" data-tip="${esc(new Date(p.ts).toLocaleDateString('en-GB'))}: ${esc(f(p.value))}"/>`;
+  }).join('');
+  return `<div class="card"><div class="spread"><h3>${esc(title)}</h3><strong class="num">${f(last.value)}</strong></div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="${esc(title)} trend">
+      <path d="${path}" fill="none" stroke="var(--fg)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>${hits}</svg>
+    <div class="small muted">${signed(isMoney ? (last.value - first.value) / 100 : last.value - first.value)}${isMoney ? ' $' : ''} in 30 days</div></div>`;
+}
+
+// ======================================================================
+// AI
+// ======================================================================
+async function ai(sub) {
+  const reports = await api('/api/reports');
+  const id = sub ? Number(sub) : reports.find((r) => r.status === 'done')?.id;
+  const r = id ? await api(`/api/reports/${id}`) : null;
+  const running = reports.find((x) => x.status === 'running');
+  const j = r?.json;
+  const list = (title, items) => `<div class="card"><h2 style="margin-bottom:6px">${title}</h2>${items?.length ? `<ul class="bullets">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : empty('-')}</div>`;
+
+  view.innerHTML = `
+    <div class="spread" style="margin-bottom:16px">
+      <div><h1 style="font-size:20px">Daily AI analysis</h1>
+      <div class="small muted">Claude reads all incoming data + searches the web for what people want, every morning.</div></div>
+      <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? 'Running… (takes a few minutes)' : 'Run analysis now'}</button>
+    </div>
+    <div class="grid g3">
+      <div class="span2 stack">
+        ${j ? `
+          <div class="card strong"><div class="small muted">${when(r.ts)} · cost ≈ $${(r.cost_usd ?? 0).toFixed(2)}</div>
+            <div class="headline" style="margin-top:4px">${esc(j.headline)}</div><p>${esc(j.summary)}</p></div>
+          <div class="grid g2">${list('Focus today', j.todayFocus)}${list('People want', j.audienceWants)}${list('Working', j.working)}${list('Not working', j.notWorking)}</div>
+          ${list('Market signals (from the web)', j.marketSignals)}
+          <h2 class="section-title">Ideas from this report</h2>
+          <div class="grid g2">${r.ideas.map(ideaCard).join('') || empty('No ideas.')}</div>
+        ` : r?.status === 'failed' ? `<div class="card strong">This run failed: ${esc(r.error)}</div>` : empty('No report yet. Press "Run analysis now".')}
+      </div>
+      <div class="card"><h2 style="margin-bottom:8px">History</h2>
+        <ul class="list">${reports.map((x) => `<li><a href="#ai/${x.id}" style="text-decoration:${x.id === id ? 'underline' : 'none'}">
+          <div class="small muted">${when(x.ts)} · ${esc(x.status)}</div><div>${esc(x.summary ?? x.error ?? '')}</div></a></li>`).join('') || '<li class="muted">None</li>'}</ul></div>
+    </div>`;
+  bindIdeaButtons();
+  $('#run').onclick = async () => {
+    try { await api('/api/reports/run', { json: {} }); toast('Analysis started - you get a Discord ping when it is ready'); setTimeout(route, 1000); }
+    catch (err) { toast(err.message); }
+  };
+  if (running) timer = setInterval(() => ai(sub).catch(() => {}), 15_000);
+}
+
+// ======================================================================
+// OUTGOING
+// ======================================================================
+async function outgoing() {
+  const [posts, settings] = await Promise.all([api('/api/posts'), api('/api/settings')]);
+  const prefill = JSON.parse(sessionStorage.getItem('prefillPost') ?? 'null');
+  sessionStorage.removeItem('prefillPost');
+  const local = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 16);
+
+  view.innerHTML = `
+    <div class="grid g2">
+      <form class="card strong stack" id="post-form">
+        <div class="spread"><h2>Upload a video</h2><span class="small muted">Publisher: <strong>${esc(settings.publisher.mode)}</strong>${settings.publisher.mode === 'manual' ? ' (you get a Discord reminder to post)' : ''}</span></div>
+        <label>Video file <input type="file" name="file" accept="video/*"></label>
+        <label>Title <input name="title" required value="${esc(prefill?.title ?? '')}" placeholder="What is this video?"></label>
+        <label>Notes for the AI (optional) <input name="notes" placeholder="e.g. showcase of the pet egg hatch, link to Patreon"></label>
+        <div><div class="small muted" style="margin-bottom:4px">Post to</div>
+          ${PLATFORMS.map((p) => `<label class="check"><input type="checkbox" name="platforms" value="${p}" checked> ${pname(p)}</label>`).join('')}</div>
+        <div class="spread"><label style="flex:1">Caption (used everywhere unless overridden)
+          <textarea name="caption" rows="3">${esc(prefill?.caption ?? '')}</textarea></label></div>
+        <div class="row"><button type="button" id="ai-captions" ${settings.ai.configured ? '' : 'disabled title="Set ANTHROPIC_API_KEY"'}>✎ Write captions per platform with AI</button></div>
+        <div id="per-platform" class="stack"></div>
+        <label>Hashtags (added to the shared caption) <input name="hashtags" placeholder="#uefn #fortnite #fortnitecreative"></label>
+        <div class="row">
+          <label style="flex:1">When <input type="datetime-local" name="when" value="${local}"></label>
+          <label class="check" style="margin-top:18px"><input type="checkbox" name="draft"> Save as draft</label>
+        </div>
+        <input type="hidden" name="idea_id" value="${esc(prefill?.idea_id ?? '')}">
+        <div class="row"><button class="primary" type="submit">Schedule post</button><span id="upload-progress" class="small muted"></span></div>
+      </form>
+
+      <div class="card">
+        <h2 style="margin-bottom:8px">Posts</h2>
+        <ul class="list">${posts.map(postRow).join('') || `<li>${empty('Nothing posted yet.')}</li>`}</ul>
+      </div>
+    </div>`;
+
+  const form = $('#post-form');
+  let captions = {};
+  $('#ai-captions').onclick = async (e) => {
+    const f = new FormData(form);
+    const platforms = f.getAll('platforms');
+    if (!f.get('title')) return toast('Add a title first');
+    e.target.disabled = true; e.target.textContent = 'Writing…';
+    try {
+      captions = await api('/api/captions', { json: { title: f.get('title'), notes: f.get('notes'), platforms } });
+      $('#per-platform').innerHTML = [...platforms, ...(captions.youtubeTitle ? ['youtubeTitle'] : [])].map((p) =>
+        `<label>${p === 'youtubeTitle' ? 'YouTube title' : pname(p)} <textarea data-cap="${p}" rows="${p === 'youtubeTitle' ? 1 : 3}">${esc(captions[p] ?? '')}</textarea></label>`).join('');
+    } catch (err) { toast(err.message); }
+    e.target.disabled = false; e.target.textContent = '✎ Write captions per platform with AI';
+  };
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const per = {};
+    form.querySelectorAll('[data-cap]').forEach((t) => { if (t.value.trim()) per[t.dataset.cap] = t.value.trim(); });
+    const body = new FormData();
+    for (const k of ['title', 'caption', 'hashtags', 'idea_id']) body.append(k, f.get(k) ?? '');
+    body.append('platforms', f.getAll('platforms').join(','));
+    body.append('captions_json', Object.keys(per).length ? JSON.stringify(per) : '');
+    body.append('scheduled_at', String(new Date(f.get('when')).getTime() || Date.now()));
+    if (f.get('draft')) body.append('draft', '1');
+    const file = f.get('file');
+    if (file && file.size) body.append('file', file);
+    // XHR so we can show upload progress for big videos.
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'api/posts');
+    xhr.upload.onprogress = (ev) => { $('#upload-progress').textContent = ev.lengthComputable ? `Uploading ${Math.round((ev.loaded / ev.total) * 100)}%` : 'Uploading…'; };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { toast('Post scheduled'); outgoing(); }
+      else toast(JSON.parse(xhr.responseText || '{}').error ?? `Upload failed (${xhr.status})`);
+    };
+    xhr.onerror = () => toast('Upload failed');
+    xhr.send(body);
+  };
+
+  view.querySelectorAll('[data-post] [data-act]').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.closest('[data-post]').dataset.post;
+      const act = btn.dataset.act;
+      try {
+        if (act === 'now') await api(`/api/posts/${id}/publish`, { json: {} });
+        else await api(`/api/posts/${id}/status`, { json: { status: act } });
+        outgoing();
+      } catch (err) { toast(err.message); }
+    };
+  });
+}
+
+function postRow(p) {
+  const results = p.results_json ? JSON.parse(p.results_json) : {};
+  const caps = p.captions_json ? JSON.parse(p.captions_json) : {};
+  return `<li data-post="${p.id}">
+    <div class="spread"><strong>${esc(p.title)}</strong><span class="tag ${p.status === 'failed' ? 'dark' : ''}">${esc(p.status)}</span></div>
+    <div class="small muted">${when(p.scheduled_at)} (${ago(p.scheduled_at)}) · by ${esc(p.created_by ?? '?')} ${p.file_name ? `· <a href="media/${p.id}" target="_blank">${esc(p.file_name)}</a>` : '· no video attached'}</div>
+    <div class="row" style="margin-top:4px">${p.platforms.split(',').map((pl) => {
+      const r = results[pl];
+      return `<span class="tag ${r?.status === 'failed' ? 'dark' : ''}" data-tip="${esc(r?.error ?? r?.status ?? 'waiting')}">${r?.url ? `<a href="${esc(r.url)}" target="_blank">${pname(pl)} ↗</a>` : pname(pl)} ${r ? (r.status === 'published' ? '✓' : r.status === 'failed' ? '✕' : '…') : ''}</span>`;
+    }).join('')}</div>
+    <details style="margin-top:4px"><summary>Caption</summary><div class="small" style="white-space:pre-wrap">${esc(p.caption)}${Object.entries(caps).map(([k, v]) => `\n\n<strong>${esc(pname(k))}:</strong> ${esc(v)}`).join('')}</div></details>
+    <div class="row" style="margin-top:6px">
+      ${['scheduled', 'draft'].includes(p.status) ? `<button data-act="now">Publish now</button>` : ''}
+      ${p.status === 'draft' ? `<button data-act="scheduled">Schedule</button>` : ''}
+      ${p.status === 'scheduled' ? `<button data-act="cancelled">Cancel</button>` : ''}
+      ${['manual', 'failed', 'partial'].includes(p.status) ? `<button data-act="published">Mark as posted</button><button data-act="now">Retry</button>` : ''}
+    </div></li>`;
+}
+
+// ======================================================================
+// BUILD QUEUE
+// ======================================================================
+async function build(sub) {
+  const [jobs, services] = await Promise.all([api('/api/jobs'), api('/api/services')]);
+  const machines = services.filter((s) => s.kind === 'machine');
+  const running = jobs.filter((j) => j.status === 'running');
+  const queued = jobs.filter((j) => j.status === 'queued');
+  const done = jobs.filter((j) => !['running', 'queued'].includes(j.status));
+  const openId = Number(sub) || running[0]?.id;
+  const open = openId ? await api(`/api/jobs/${openId}`) : null;
+
+  view.innerHTML = `
+    <div class="grid g3">
+      <div class="stack">
+        <form class="card strong stack" id="job-form">
+          <h2>New build prompt</h2>
+          <label>Title <input name="title" placeholder="e.g. Pet system v1"></label>
+          <label>Prompt for Claude on the build machine <textarea name="prompt" rows="8" required placeholder="What should be built in UEFN? Be specific: devices, UI, behaviour, how to test it."></textarea></label>
+          <div class="spread"><label class="check"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit">Add to queue</button></div>
+        </form>
+        <div class="card"><h2 style="margin-bottom:8px">Machines</h2>
+          ${machines.map((s) => `<div class="spread"><span><strong>${esc(s.label)}</strong><div class="small muted">${esc(s.detail ?? '')} · ${ago(s.last_seen)}</div></span>${statusBadge(s.status)}</div>`).join('') || empty('No machine connected. Run machine/worker.mjs on the UEFN PC (see Setup).')}
+        </div>
+      </div>
+
+      <div class="span2 stack">
+        <div class="card">
+          <h2 style="margin-bottom:8px">Queue</h2>
+          <ul class="list">
+            ${running.map((j) => jobRow(j, true)).join('')}
+            ${queued.map((j, i) => jobRow(j, false, i, queued.length)).join('')}
+            ${!running.length && !queued.length ? `<li>${empty('Queue is empty. Add a prompt or send an AI idea here.')}</li>` : ''}
+          </ul>
+        </div>
+        ${open ? `<div class="card"><div class="spread"><h2>#${open.id} ${esc(open.title)}</h2><span class="tag ${open.status === 'failed' ? 'dark' : ''}">${esc(open.status)}</span></div>
+          <div class="small muted">${open.machine ? `on ${esc(open.machine)} · ` : ''}started ${ago(open.started_at)}${open.finished_at ? ` · finished ${ago(open.finished_at)}` : ''} · attempts ${open.attempts}</div>
+          ${open.summary ? `<p><strong>Result:</strong> ${esc(open.summary)}</p>` : ''}
+          <details><summary>Prompt</summary><div class="log mono" style="margin-top:6px">${esc(open.prompt)}</div></details>
+          <h3 style="margin:10px 0 6px">Live log</h3><div class="log mono" id="joblog">${esc(open.log || 'No output yet.')}</div></div>` : ''}
+        <div class="card"><h2 style="margin-bottom:8px">Finished</h2>
+          <div class="table-wrap"><table><tr><th>Build</th><th>Status</th><th>Finished</th><th></th></tr>
+          ${done.map((j) => `<tr data-job="${j.id}"><td class="title"><a href="#build/${j.id}">${esc(j.title)}</a><div class="small muted">${esc((j.summary ?? '').slice(0, 140))}</div></td>
+            <td><span class="tag ${j.status === 'failed' ? 'dark' : ''}">${esc(j.status)}</span></td><td class="small">${ago(j.finished_at)}</td>
+            <td><button data-act="retry">Run again</button></td></tr>`).join('') || `<tr><td colspan="4">${empty('Nothing finished yet.')}</td></tr>`}
+          </table></div></div>
+      </div>
+    </div>`;
+
+  $('#job-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try { await api('/api/jobs', { json: { title: f.get('title'), prompt: f.get('prompt'), top: !!f.get('top') } }); toast('Added to the queue'); build(); }
+    catch (err) { toast(err.message); }
+  };
+  view.querySelectorAll('[data-job] [data-act]').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.closest('[data-job]').dataset.job;
+      const act = btn.dataset.act;
+      try {
+        if (act === 'up' || act === 'down') await api(`/api/jobs/${id}/move`, { json: { dir: act } });
+        if (act === 'cancel' && confirm('Cancel this build?')) await api(`/api/jobs/${id}/cancel`, { json: {} });
+        if (act === 'retry') await api(`/api/jobs/${id}/retry`, { json: {} });
+        build(sub);
+      } catch (err) { toast(err.message); }
+    };
+  });
+  const log = $('#joblog');
+  if (log) log.scrollTop = log.scrollHeight;
+  if (running.length) timer = setInterval(() => { if (!document.hidden) build(sub).catch(() => {}); }, 8000);
+}
+
+function jobRow(j, isRunning, i = 0, n = 0) {
+  return `<li data-job="${j.id}" class="spread">
+    <div style="min-width:0;flex:1"><div>${isRunning ? '<span class="tag dark">building</span>' : `<span class="muted">${i + 1}.</span>`} <a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a></div>
+      <div class="small muted">${isRunning ? `on ${esc(j.machine)} · ${ago(j.started_at)}` : `added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}${j.summary ? ` · ${esc(j.summary)}` : ''}`}</div></div>
+    <div class="row">${isRunning ? '' : `<button data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button data-act="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>`}
+      <button data-act="cancel">Cancel</button></div></li>`;
+}
+
+// ======================================================================
+// STATUS
+// ======================================================================
+async function status() {
+  const svcs = await api('/api/services');
+  const groups = { machine: 'Build machines', heartbeat: 'Bots (heartbeats)', http: 'Websites & APIs', connector: 'Data connectors' };
+  view.innerHTML = Object.entries(groups).map(([kind, title]) => {
+    const rows = svcs.filter((s) => s.kind === kind);
+    return `<div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:8px">${title}</h2>
+      ${rows.length ? `<div class="table-wrap"><table><tr><th>Service</th><th>Status</th><th>Detail</th><th>Last seen</th><th>Status since</th></tr>
+        ${rows.map((s) => `<tr><td><strong>${esc(s.label ?? s.name)}</strong>${s.url ? `<div class="small muted">${esc(s.url)}</div>` : ''}</td>
+          <td>${statusBadge(s.status)}</td><td class="small">${esc(s.detail ?? '')}</td><td class="small">${ago(s.last_seen)}</td><td class="small">${ago(s.changed_at)}</td></tr>`).join('')}
+      </table></div>` : empty('None yet.')}</div>`;
+  }).join('');
+  timer = setInterval(() => { if (!document.hidden) status().catch(() => {}); }, 30_000);
+}
+
+// ======================================================================
+// SETUP
+// ======================================================================
+async function setup() {
+  const s = await api('/api/settings');
+  const yes = (b) => (b ? statusBadge('online').replace('online', 'ready') : statusBadge('not_configured'));
+  view.innerHTML = `
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:8px">Incoming connectors</h2>
+        <table>${s.connectors.map((c) => `<tr><td><strong>${esc(c.name)}</strong><div class="small muted">${esc(c.setup)}</div></td><td>${yes(c.configured)}</td></tr>`).join('')}</table></div>
+      <div class="card"><h2 style="margin-bottom:8px">Everything else</h2>
+        <table>
+          <tr><td><strong>Daily AI analysis</strong><div class="small muted">ANTHROPIC_API_KEY · model ${esc(s.ai.model)} · runs daily after ${s.ai.dailyHour}:00</div></td><td>${yes(s.ai.configured)}</td></tr>
+          <tr><td><strong>Publisher</strong><div class="small muted">PUBLISHER=ayrshare (AYRSHARE_API_KEY) or webhook (PUBLISH_WEBHOOK_URL) or manual · now: ${esc(s.publisher.mode)}</div></td><td>${yes(s.publisher.ready)}</td></tr>
+          <tr><td><strong>Discord notifications</strong><div class="small muted">NOTIFY_DISCORD_WEBHOOK - build done, service down, report ready</div></td><td>${yes(s.notify)}</td></tr>
+          <tr><td><strong>Bot / Discord-tool API key</strong><div class="small muted">INGEST_KEY - for heartbeats and Discord messages</div></td><td>${yes(s.ingestKey)}</td></tr>
+          <tr><td><strong>Build machine key</strong><div class="small muted">MACHINE_KEY - used by machine/worker.mjs</div></td><td>${yes(s.machineKey)}</td></tr>
+          <tr><td><strong>Website checks</strong><div class="small muted">config/services.json · ${s.httpServices.length} configured</div></td><td>${yes(s.httpServices.length > 0)}</td></tr>
+        </table></div>
+      <div class="card span2"><h2 style="margin-bottom:8px">Hooking up bots & tools</h2>
+        <p class="small">Every bot sends a heartbeat each minute so it shows online here:</p>
+        <div class="log mono">curl -X POST ${esc(s.publicUrl)}/api/ingest/heartbeat -H "x-api-key: $INGEST_KEY" -H "content-type: application/json" \\
+  -d '{"name":"Support bot","detail":"answered 12 questions today"}'</div>
+        <p class="small">Discord tools forward what people ask for (kind = request | question | feedback | message):</p>
+        <div class="log mono">curl -X POST ${esc(s.publicUrl)}/api/ingest/signal -H "x-api-key: $INGEST_KEY" -H "content-type: application/json" \\
+  -d '[{"kind":"request","author":"user123","channel":"requests","text":"please make a pet system"}]'</div>
+        <p class="small">Patreon sales: in the Patreon portal add a webhook to <span class="mono">${esc(s.publicUrl)}/api/webhooks/patreon</span> and put its secret in PATREON_WEBHOOK_SECRET.
+        Other sales: POST <span class="mono">/api/ingest/sale</span> with <span class="mono">{"product":"Pet System","amount_cents":1500}</span>.</p>
+        <p class="small">Build machine: see <span class="mono">machine/README.md</span>.</p>
+      </div>
+    </div>`;
+}

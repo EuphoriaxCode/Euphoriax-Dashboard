@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Euphoriax HQ</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='black'/><text x='8' y='12.5' font-size='12' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'>E</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="login" hidden>
+    <form id="login-form" class="login">
+      <h1>EUPHORIAX</h1>
+      <label>Name <input name="name" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Log in</button>
+      <p class="error" id="login-error"></p>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <header>
+      <a class="brand" href="#overview">EUPHORIAX</a>
+      <nav id="nav">
+        <a href="#overview">Overview</a>
+        <a href="#incoming">Incoming</a>
+        <a href="#ai">AI</a>
+        <a href="#outgoing">Outgoing</a>
+        <a href="#build">Build queue</a>
+        <a href="#status">Status</a>
+        <a href="#setup">Setup</a>
+      </nav>
+      <div class="header-right">
+        <span id="health-pill" class="pill"></span>
+        <button id="refresh" title="Pull fresh data from every platform now">Refresh</button>
+        <button id="logout">Log out</button>
+      </div>
+    </header>
+    <main id="view"></main>
+  </div>
+  <div id="tooltip" role="tooltip" hidden></div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "euphoriax-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Euphoriax control dashboard - incoming data, AI daily analysis, outgoing posts and the UEFN build machine queue",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --no-warnings dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "hash-password": "tsx scripts/hash-password.ts",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.5",
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
