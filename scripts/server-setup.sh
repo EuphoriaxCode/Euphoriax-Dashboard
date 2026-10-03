@@ -191,20 +191,8 @@ say "Building and starting everything (first time takes a few minutes)"
 (cd "$ROOT/bot-buddy" && mkdir -p data && chown 1000:1000 data && docker compose up -d --build)
 (cd "$ROOT/dashboard" && docker compose up -d --build)
 
-# One command to update everything later.
-cat > "$ROOT/update.sh" <<'UPDATE'
-#!/usr/bin/env bash
-# Pulls the latest code of all three apps and restarts them. Your settings and data are kept.
-set -e
-for app in uefn-trends bot-buddy dashboard; do
-  echo "==> $app"
-  git -C /opt/euphoriax/$app pull -q
-  (cd /opt/euphoriax/$app && docker compose up -d --build)
-done
-docker image prune -f >/dev/null
-echo "All up to date."
-UPDATE
-chmod +x "$ROOT/update.sh"
+# The Update / Restart buttons in the dashboard (and /opt/euphoriax/update.sh) run through this helper.
+bash "$ROOT/dashboard/scripts/install-control.sh" >/dev/null
 
 sleep 10
 say "Status"
@@ -221,5 +209,5 @@ Done! Next:
   3. Bot Buddy has more Discord settings (support channels, ticket category, ...):
        nano $BUDDY_ENV   then   cd $ROOT/bot-buddy && docker compose up -d
 
-Update everything later with:   $ROOT/update.sh
+Update or restart later with the buttons in the dashboard (Status → Server),\nor on the server:   $ROOT/update.sh
 DONE

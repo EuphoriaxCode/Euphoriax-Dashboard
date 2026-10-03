@@ -277,6 +277,8 @@ function inboxHtml(d) {
   for (const p of i.postsToHandle) items.push(`<div class="inbox-item spread" data-post="${p.id}"><div><span class="tag ${p.status === 'manual' ? '' : 'dark'}">${p.status === 'manual' ? 'post this' : 'post ' + esc(p.status)}</span>
     <strong>${esc(p.title)}</strong> <span class="small muted">${p.platforms.split(',').map(pname).join(', ')}</span></div>
     <div class="row">${p.status === 'manual' && p.id ? `<a class="btn" href="media/${p.id}" target="_blank">Video</a>` : ''}<button data-act="published">Done, it's posted</button></div></div>`);
+  if (i.updates?.length) items.push(`<div class="inbox-item spread"><div><span class="tag dark">update</span> <strong>New version available</strong>
+    <div class="small muted">${i.updates.map((u) => `${esc(u.label)} (${u.behind})`).join(' · ')}</div></div><a class="btn" href="#status">Update →</a></div>`);
   if (i.drafts) items.push(`<div class="inbox-item spread"><div><span class="tag dark">review</span> <strong>${i.drafts} new answer${i.drafts > 1 ? 's' : ''} for the Discord bots</strong>
     <div class="small muted">Pushed in by a tool. The bots only use them after you approve.</div></div><a class="btn" href="#knowledge">Review →</a></div>`);
   const extra = i.questionsTotal > i.questions.length ? `<a href="#incoming/discord">+${i.questionsTotal - i.questions.length} more questions</a>` : '';
@@ -1096,7 +1098,7 @@ async function status() {
   const svcs = await api('/api/services');
   const groups = { bot: 'Discord bots', machine: 'Build PC', trends: 'UEFN Trends sources', heartbeat: 'Other bots (heartbeats)', http: 'Websites & APIs', connector: 'Connections' };
   const down = svcs.filter((x) => x.status === 'offline').length;
-  view.innerHTML = `<div class="spread" style="margin-bottom:12px"><span class="status lg ${down ? 'offline' : 'online'}">${dot(down ? 'offline' : 'online')}${down ? `${down} offline` : 'Everything is online'}</span></div>` +
+  view.innerHTML = `<div class="spread" style="margin-bottom:12px"><span class="status lg ${down ? 'offline' : 'online'}">${dot(down ? 'offline' : 'online')}${down ? `${down} offline` : 'Everything is online'}</span></div><div id="server-box"></div>` +
     Object.entries(groups).map(([kind, title]) => {
       const rows = svcs.filter((x) => x.kind === kind);
       if (!rows.length) return '';
@@ -1106,7 +1108,83 @@ async function status() {
             <td>${statusBadge(x.status)}</td><td class="small">${esc(x.detail ?? '')}</td><td class="small">${ago(x.last_seen)}</td><td class="small">${ago(x.changed_at)}</td></tr>`).join('')}
         </table></div></div>`;
     }).join('');
-  timer = setInterval(() => { if (!document.hidden) status().catch(() => {}); }, 30_000);
+  serverPanel($('#server-box'));
+  timer = setInterval(() => { if (!document.hidden && !$('#server-box [data-busy]')) status().catch(() => {}); }, 30_000);
+}
+
+// ---------- Server: Update / Restart buttons ----------
+const SERVER_BUTTONS = [
+  ['update', 'Update everything', 'Download the newest version of the dashboard, the Discord bots and UEFN Trends and restart them. The dashboard is unavailable for about a minute and the page reloads by itself.'],
+  ['restart-buddy', 'Restart Discord bots', 'The bots are offline for about 20 seconds. Use it when a bot is stuck or stopped answering.'],
+  ['restart-trends', 'Restart UEFN Trends', 'UEFN Trends is offline for a few seconds.'],
+  ['restart-dashboard', 'Restart dashboard', 'The dashboard is unavailable for a few seconds.'],
+  ['restart-all', 'Restart everything', 'All three apps restart one after the other (about a minute).'],
+  ['reboot', 'Reboot the server', 'The whole server restarts. Everything is offline for 1 to 2 minutes and comes back by itself. Only use this when restarting the apps did not help.'],
+];
+
+async function serverPanel(box) {
+  if (!box) return;
+  let lostSince = null;
+  let reloadWhenDone = false;  // the dashboard restarted: reload once the run is over so the page is the new version too
+  let waitUntil = 0;
+  let lastStart = null;   // startedAt of the newest run we have seen
+  let prevStart = null;   // ...at the moment we clicked: "waiting" lasts until a newer run shows up
+  const INSTALL = 'bash /opt/euphoriax/dashboard/scripts/install-control.sh';
+
+  const render = (s) => {
+    if (!s.helperInstalled) {
+      box.innerHTML = `<div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:6px">Server</h2>
+        <p style="margin:0 0 8px">Update and Restart buttons need a one-time install on the server (about 30 seconds):</p>
+        <div class="copy"><input readonly value="${esc(INSTALL)}"><button type="button" data-copy-cmd>Copy</button></div>
+        <p class="small muted" style="margin:8px 0 0">Open PowerShell, run <span class="mono">ssh root@YOUR-SERVER-IP</span>, paste the line above and press Enter. After that this box shows the buttons.</p></div>`;
+      box.querySelector('[data-copy-cmd]').onclick = async () => { try { await navigator.clipboard.writeText(INSTALL); toast('Copied'); } catch { box.querySelector('input').select(); } };
+      return;
+    }
+    const st = s.status;
+    lastStart = st.startedAt ?? null;
+    const waiting = Date.now() < waitUntil && st.startedAt === prevStart;
+    const running = st.state === 'running' || s.queued > 0 || waiting;
+    const apps = s.versions?.apps ?? [];
+    const behind = apps.reduce((n, a) => n + a.behind, 0);
+    const last = st.state === 'done' || st.state === 'failed'
+      ? `<div class="row" style="margin-top:12px"><span class="status ${st.state === 'done' ? 'online' : 'offline'}">${dot(st.state === 'done' ? 'online' : 'offline')}Last run: ${esc(SERVER_BUTTONS.find((b) => b[0] === st.action)?.[1] ?? st.action)} ${st.state === 'done' ? 'finished' : 'finished with errors'}</span>
+         <span class="small muted">${ago(st.finishedAt)}</span></div>` : '';
+    box.innerHTML = `<div class="card strong" style="margin-bottom:16px" ${running ? 'data-busy' : ''}>
+      <div class="spread"><h2>Server</h2><span class="small muted">${s.versions ? `checked for updates ${ago(s.versions.checkedAt)}` : ''}</span></div>
+      ${apps.length ? `<div class="table-wrap" style="margin-top:8px"><table><tr><th>App</th><th>Version</th><th></th></tr>${apps.map((a) => `<tr><td><strong>${esc(a.label)}</strong></td>
+        <td><span class="mono">${esc(a.hash)}</span> <span class="muted small">${esc(a.subject)} · ${ago(a.date)}</span></td>
+        <td class="num">${a.behind > 0 ? `<span class="tag dark">${a.behind} update${a.behind > 1 ? 's' : ''} available</span>` : '<span class="small muted">up to date</span>'}</td></tr>`).join('')}</table></div>` : ''}
+      ${running ? `<div class="row" style="margin-top:12px"><span class="status degraded">${dot('degraded')}${st.state === 'running' ? esc(st.step || 'Working…') : 'Waiting for the server to pick it up…'}</span></div>
+        <div class="log mono" id="server-log" style="margin-top:8px;max-height:220px">${esc(s.log || '')}</div>`
+        : `<div class="row" style="margin-top:12px">${SERVER_BUTTONS.map(([id, label], i) => `<button data-sv="${id}" class="${i === 0 ? 'primary' : ''}">${i === 0 && behind ? `${label} (${behind} new)` : label}</button>`).join('')}</div>${last}
+        ${s.log && st.state !== 'idle' ? `<details style="margin-top:8px"><summary>Show details of the last run</summary><div class="log mono" style="margin-top:6px;max-height:260px">${esc(s.log)}</div></details>` : ''}`}
+    </div>`;
+    const lg = box.querySelector('#server-log'); if (lg) lg.scrollTop = lg.scrollHeight;
+    box.querySelectorAll('[data-sv]').forEach((b) => b.onclick = async () => {
+      const def = SERVER_BUTTONS.find((x) => x[0] === b.dataset.sv);
+      if (!confirm(`${def[1]}?\n\n${def[2]}`)) return;
+      try { await api('/api/server/action', { json: { action: def[0] } }); prevStart = lastStart; waitUntil = Date.now() + 20_000; tick(); }
+      catch (err) { toast(err.message); }
+    });
+  };
+
+  const tick = async () => {
+    if (!document.body.contains(box)) return; // left the page
+    try {
+      const s = await api('/api/server');
+      lostSince = null;
+      if (reloadWhenDone && s.status.state !== 'running') return location.reload();
+      render(s);
+      if (s.status.state === 'running' || s.queued > 0 || (Date.now() < waitUntil && s.status.startedAt === prevStart)) setTimeout(tick, 2000);
+    } catch (err) {
+      if (err.message === 'login required') return;
+      lostSince ??= Date.now();
+      reloadWhenDone = true;
+      box.innerHTML = `<div class="card strong" style="margin-bottom:16px" data-busy><h2>Server</h2><div class="row" style="margin-top:8px"><span class="status degraded">${dot('degraded')}The dashboard is restarting. This page reconnects by itself…</span></div></div>`;
+      setTimeout(tick, 3000);
+    }
+  };
+  tick();
 }
 
 // ======================================================================

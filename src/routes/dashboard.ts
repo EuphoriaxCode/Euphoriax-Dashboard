@@ -17,6 +17,7 @@ import {
 import { db, logActivity, now } from '../db.js';
 import { addJob, moveJob } from '../jobs.js';
 import { checkServices, httpServices } from '../monitor.js';
+import { ACTIONS, controlState, requestAction } from '../serverControl.js';
 import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
 import { analysisRunning, runDailyAnalysis } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
@@ -50,6 +51,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         proposals: (b?.proposals ?? []).slice(0, 5),
         tickets: b?.tickets.length ?? 0,
         drafts: (db.prepare('SELECT COUNT(*) n FROM kb_drafts').get() as { n: number }).n,
+        updates: (() => { const c = controlState(); return c.helperInstalled ? (c.versions?.apps ?? []).filter((a) => a.behind > 0).map((a) => ({ label: a.label, behind: a.behind })) : []; })(),
         failedBuilds: db.prepare(`SELECT id, title, summary FROM jobs WHERE status = 'failed' AND kind = 'build' AND finished_at > ?`).all(now() - 2 * 864e5),
         postsToHandle: db.prepare(`SELECT id, title, status, platforms FROM posts WHERE status IN ('manual', 'failed', 'partial') AND scheduled_at > ?`).all(now() - 7 * 864e5),
       },
@@ -332,6 +334,14 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const { status } = req.body as { status: 'scheduled' | 'draft' | 'published' | 'cancelled' };
     db.prepare('UPDATE posts SET status = ? WHERE id = ?').run(status, idParam(req));
     return { ok: true };
+  });
+
+  // ---------- Server: update / restart buttons ----------
+  app.get('/api/server', async () => controlState());
+  app.post('/api/server/action', async (req) => {
+    const { action } = req.body as { action: string };
+    requestAction(action, who(req));
+    return { ok: true, label: ACTIONS[action] };
   });
 
   // ---------- Status & settings ----------

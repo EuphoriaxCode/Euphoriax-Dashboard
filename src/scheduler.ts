@@ -8,6 +8,8 @@ import { publishDue } from './outgoing/publish.js';
 import { runDailyAnalysis } from './ai/daily.js';
 import { env } from './config.js';
 import { autodetectServices } from './settings.js';
+import { ACTIONS, controlState } from './serverControl.js';
+import { notify } from './notify.js';
 import { logActivity } from './db.js';
 
 function every(ms: number, name: string, fn: () => Promise<unknown> | unknown) {
@@ -22,6 +24,15 @@ function every(ms: number, name: string, fn: () => Promise<unknown> | unknown) {
 }
 
 export function startScheduler() {
+  // Tell us in Discord when an Update / Restart button run has finished (also when the dashboard itself was restarted).
+  every(15_000, 'control-notify', async () => {
+    const { status } = controlState();
+    if ((status.state !== 'done' && status.state !== 'failed') || !status.finishedAt) return;
+    if (status.finishedAt <= (kvGet<number>('control_notified') ?? 0)) return;
+    kvSet('control_notified', status.finishedAt);
+    const label = ACTIONS[status.action ?? ''] ?? status.action;
+    await notify(status.state === 'done' ? `✅ **${label}** is done` : `❌ **${label}** finished with errors. Check Status → Server in the dashboard.`);
+  });
   every(15 * 60_000, 'autodetect', async () => {
     const found = await autodetectServices(env);
     for (const k of Object.keys(found)) logActivity(`Found ${k === 'BUDDY_URL' ? 'Bot Buddy' : 'UEFN Trends'} on this server and connected it`);

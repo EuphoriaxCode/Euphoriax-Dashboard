@@ -114,11 +114,17 @@ Op de pc met UEFN:
 
 ## Later
 
-**Alles updaten** (als er nieuwe code is):
+**Updaten of herstarten: met knoppen, zonder commando's.**
+Dashboard → **Status** → vak **Server**. Daar staat per app welke versie draait en of er een nieuwe is, met knoppen
+*Update everything*, *Restart Discord bots*, *Restart UEFN Trends*, *Restart dashboard*, *Restart everything* en *Reboot the server*.
+Je ziet live wat er gebeurt, en je krijgt een Discord-ping als het klaar is. Bij een update herlaadt de pagina zichzelf.
+
+Eenmalig moet het hulpprogramma achter de knoppen geïnstalleerd worden (nieuwe servers krijgen het automatisch):
 ```bash
-ssh root@91.98.12.34
-/opt/euphoriax/update.sh
+ssh root@JOUW-IP
+bash /opt/euphoriax/dashboard/scripts/install-control.sh
 ```
+Updaten met een commando blijft ook werken: `/opt/euphoriax/update.sh`.
 
 **Meer Discord-instellingen voor Bot Buddy** (support-kanalen, ticket-categorie, …):
 ```bash
