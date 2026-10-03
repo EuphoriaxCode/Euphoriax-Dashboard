@@ -64,8 +64,19 @@ export function recentSales(days = 30) {
   return db.prepare('SELECT * FROM sales WHERE ts > ? ORDER BY ts DESC LIMIT 200').all(now() - days * DAY) as any[];
 }
 
+/** Discord stores mentions, channels and emoji as <@123456789>. Readable version for screens and for the AI. */
+export const prettyDiscordText = (t: string) => t
+  .replace(/<@&\d+>/g, '@role').replace(/<@!?\d+>/g, '@mention').replace(/<#\d+>/g, '#channel')
+  .replace(/<a?:(\w+):\d+>/g, ':$1:').replace(/https?:\/\/\S+/g, '(link)');
+
+/** For counting words: markup, links and bare numbers (user ids) are not words. */
+const wordsOf = (t: string) => t
+  .replace(/<[@#][!&]?\d+>/g, ' ').replace(/<a?:\w+:\d+>/g, ' ').replace(/https?:\/\/\S+/g, ' ')
+  .toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !/^\d+$/.test(w) && !STOP.has(w));
+
 export function recentSignals(days = 2, limit = 300) {
-  return db.prepare('SELECT * FROM signals WHERE ts > ? ORDER BY ts DESC LIMIT ?').all(now() - days * DAY, limit) as any[];
+  const rows = db.prepare('SELECT * FROM signals WHERE ts > ? ORDER BY ts DESC LIMIT ?').all(now() - days * DAY, limit) as any[];
+  return rows.map((r) => ({ ...r, text: prettyDiscordText(String(r.text)) }));
 }
 
 const STOP = new Set(('the a an and or to of in on for is it i you we can be with this that how do does my me your are was ' +
@@ -77,7 +88,7 @@ export function signalKeywords(days = 7, top = 25) {
   const rows = db.prepare(`SELECT text FROM signals WHERE ts > ?`).all(now() - days * DAY) as { text: string }[];
   const counts = new Map<string, number>();
   for (const { text } of rows) {
-    const words = new Set(text.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w)));
+    const words = new Set(wordsOf(text));
     for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1]).slice(0, top).map(([word, count]) => ({ word, count }));
@@ -99,7 +110,7 @@ export function questionKeywords(days = 14, top = 15) {
   const rows = db.prepare(`SELECT text FROM signals WHERE ts > ? AND kind IN ('question', 'request')`).all(now() - days * DAY) as { text: string }[];
   const counts = new Map<string, number>();
   for (const { text } of rows) {
-    const words = new Set(text.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w)));
+    const words = new Set(wordsOf(text));
     for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1]).slice(0, top).map(([word, count]) => ({ word, count }));
