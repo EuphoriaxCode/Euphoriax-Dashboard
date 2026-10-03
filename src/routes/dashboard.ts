@@ -71,7 +71,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       posts: db.prepare(`SELECT id, title, platforms, scheduled_at, status FROM posts
         WHERE status IN ('scheduled', 'publishing') OR scheduled_at > ? ORDER BY scheduled_at DESC LIMIT 8`).all(now() - 3 * 864e5),
       products: products().slice(0, 6),
-      sales7d: db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(amount_cents), 0) cents FROM sales WHERE ts > ? AND amount_cents > 0`).get(now() - 7 * 864e5),
+      sales7d: db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(amount_cents), 0) cents FROM sales WHERE ts > ? AND amount_cents > 0 AND (event = 'members:pledge:create' OR event NOT LIKE 'members:%')`).get(now() - 7 * 864e5),
       keywords: signalKeywords(7, 12),
       signals24h: (db.prepare(`SELECT COUNT(*) n FROM signals WHERE ts > ?`).get(now() - 864e5) as { n: number }).n,
       trends: trends('top'),

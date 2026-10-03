@@ -484,10 +484,13 @@ async function contentPage(el, days = 7, platform = '') {
   $('#plat').onchange = (e) => contentPage(el, days, e.target.value);
 }
 
+// A sale is a new patron or a manually added sale. Plan changes, cancellations and other Patreon events are not.
+const isNewSale = (s) => s.amount_cents > 0 && (s.event === 'members:pledge:create' || !String(s.event).startsWith('members:'));
+
 async function salesPage(el) {
   const d = await api('/api/sales');
   const byProduct = {};
-  for (const s of d.sales) if (s.amount_cents > 0) (byProduct[s.product] ??= { n: 0, cents: 0 }), byProduct[s.product].n++, byProduct[s.product].cents += s.amount_cents;
+  for (const s of d.sales) if (isNewSale(s)) (byProduct[s.product] ??= { n: 0, cents: 0 }), byProduct[s.product].n++, byProduct[s.product].cents += s.amount_cents;
   const rows = Object.entries(byProduct).sort((a, b) => b[1].cents - a[1].cents);
   const max = Math.max(1, ...rows.map(([, v]) => v.cents));
   el.innerHTML = `
@@ -495,7 +498,7 @@ async function salesPage(el) {
       ${kpi('Monthly revenue', money(d.metrics.monthly_revenue_cents?.value), `${signed((d.metrics.monthly_revenue_cents?.change7d ?? 0) / 100)} $ this week`)}
       ${kpi('Patrons', fmt(d.metrics.patrons?.value), `${signed(d.metrics.patrons?.change7d)} this week`)}
       ${kpi('Paid members', fmt(d.metrics.paid_members?.value), '')}
-      ${kpi('New sales (60d)', String(d.sales.filter((s) => s.amount_cents > 0).length), money(d.sales.reduce((a, s) => a + (s.amount_cents ?? 0), 0)))}
+      ${kpi('New sales (60d)', String(d.sales.filter(isNewSale).length), money(d.sales.filter(isNewSale).reduce((a, s) => a + s.amount_cents, 0)))}
     </div>
     <div class="grid g2">
       <div class="card"><h2 style="margin-bottom:8px">Tiers & products (current)</h2>${productTable(d.products)}</div>

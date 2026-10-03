@@ -88,11 +88,18 @@ export async function machineRoutes(app: FastifyInstance) {
       const a = body.data?.attributes ?? {};
       const tierId = body.data?.relationships?.currently_entitled_tiers?.data?.[0]?.id;
       const tier = (body.included ?? []).find((i: any) => i.type === 'tier' && i.id === tierId);
+      const tierName = tier?.attributes?.title ?? 'membership';
+      // Only pledge events are money events. Posts, member profile changes etc. are not sales and must not count as one.
+      if (!event.startsWith('members:pledge:')) {
+        logActivity(`Patreon: ${event}`);
+        return { ok: true };
+      }
       const customer = createHash('sha256').update(String(a.email ?? a.full_name ?? '')).digest('hex').slice(0, 10);
       db.prepare('INSERT INTO sales (platform, product, amount_cents, event, customer, ts) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('patreon', tier?.attributes?.title ?? 'membership', event.includes('delete') ? 0 : a.currently_entitled_amount_cents ?? 0,
-          event, customer, now());
-      logActivity(`Patreon: ${event} (${tier?.attributes?.title ?? 'membership'})`);
+        .run('patreon', tierName, event.endsWith(':delete') ? 0 : a.currently_entitled_amount_cents ?? 0, event, customer, now());
+      const what = event.endsWith(':create') ? 'New patron' : event.endsWith(':delete') ? 'Patron left' : 'Pledge changed';
+      logActivity(`Patreon: ${what} (${tierName})`);
+      if (event.endsWith(':create')) void notify(`💰 **New patron**: ${tierName}${a.currently_entitled_amount_cents ? ` ($${(a.currently_entitled_amount_cents / 100).toFixed(0)}/month)` : ''}`);
       return { ok: true };
     });
   });
