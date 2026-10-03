@@ -34,7 +34,7 @@ export function startScheduler() {
     const note = status.note ? `\n${status.note}` : '';
     if (status.action === 'auto-update' && status.state === 'done' && !status.note) return;   // nothing was actually deployed
     if (status.action === 'apply-config' && status.state === 'done') return;                  // housekeeping, only tell us when it fails
-    await notify(status.state === 'done' ? `✅ **${label}** is done${note}` : `❌ **${label}** finished with errors${note}\nDetails: ${config.publicUrl}/#status`);
+    await notify(status.state === 'done' ? `✅ **${label}** is done${note}` : `❌ **${label}** finished with errors${note}\nDetails: ${config.publicUrl}/#status`, { urgent: status.state === 'failed' });
   });
   every(15 * 60_000, 'autodetect', async () => {
     const found = await autodetectServices(env);
