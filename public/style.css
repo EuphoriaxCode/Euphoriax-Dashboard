@@ -34,7 +34,8 @@ header {
   position: sticky; top: 0; z-index: 10; background: var(--bg);
   display: flex; align-items: center; gap: 20px; padding: 10px 20px; border-bottom: 1px solid var(--strong-line);
 }
-.brand { font-weight: 800; letter-spacing: 0.12em; text-decoration: none; }
+.brand { display: flex; align-items: center; text-decoration: none; }
+.brand img { height: 30px; width: auto; display: block; }
 nav { display: flex; gap: 2px; overflow-x: auto; flex: 1; }
 nav a { text-decoration: none; padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
 nav a:hover { background: var(--soft); }
