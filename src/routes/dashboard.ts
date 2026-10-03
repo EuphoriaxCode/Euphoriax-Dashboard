@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { removeUser, requireUser, setPassword, userNames } from '../auth.js';
@@ -11,10 +11,10 @@ import { buddy, buddyCache, buddyList, discordLink, refreshBuddy } from '../conn
 import { trendsApi } from '../connectors/uefnTrends.js';
 import { publicSettings, saveSettings } from '../settings.js';
 import {
-  contentPerformance, historyDays, latestMetrics, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
+  contentPerformance, historyDays, latestMetrics, topProducts, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
   trends, viewsByPlatform,
 } from '../data.js';
-import { db, logActivity, now } from '../db.js';
+import { db, kvGet, kvSet, logActivity, now } from '../db.js';
 import { addJob, moveJob } from '../jobs.js';
 import { checkServices, httpServices } from '../monitor.js';
 import { ACTIONS, controlState, requestAction, setAutoUpdate } from '../serverControl.js';
@@ -51,6 +51,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
         proposals: (b?.proposals ?? []).slice(0, 5),
         tickets: b?.tickets.length ?? 0,
         drafts: (db.prepare('SELECT COUNT(*) n FROM kb_drafts').get() as { n: number }).n,
+        // Shop sales only arrive through the CSV import: nudge once a week has passed since the last one.
+        importSalesDue: (() => { const l = kvGet<{ ts: number }>('sales_import_last'); return !!l && now() - l.ts > 7 * 864e5; })(),
         updates: (() => { const c = controlState(); return c.helperInstalled ? (c.versions?.apps ?? []).filter((a) => a.behind > 0 && !a.blocked).map((a) => ({ label: a.label, behind: a.behind })) : []; })(),
         failedBuilds: db.prepare(`SELECT id, title, summary FROM jobs WHERE status = 'failed' AND kind = 'build' AND finished_at > ?`).all(now() - 2 * 864e5),
         postsToHandle: db.prepare(`SELECT id, title, status, platforms FROM posts WHERE status IN ('manual', 'failed', 'partial') AND scheduled_at > ?`).all(now() - 7 * 864e5),
@@ -59,6 +61,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       services: svc,
       metrics: latestMetrics(),
       historyDays: historyDays(),
+      topProducts: topProducts(30, 6),
       views7d: viewsByPlatform(7),
       views1d: viewsByPlatform(1),
       topContent: contentPerformance({ days: 7, limit: 8 }),
@@ -228,7 +231,30 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const q = req.query as { platform: string; key: string; days?: string };
     return metricHistory(q.platform, q.key, Number(q.days) || 30);
   });
-  app.get('/api/sales', async () => ({ products: products(), sales: recentSales(60), metrics: latestMetrics().patreon ?? {} }));
+  app.get('/api/sales', async () => ({
+    products: products(), sales: recentSales(60), metrics: latestMetrics().patreon ?? {},
+    topProducts: topProducts(60, 12),
+    totals: db.prepare(`SELECT COUNT(*) n, COALESCE(SUM(amount_cents), 0) cents FROM sales WHERE ts > ? AND amount_cents > 0 AND (event = 'members:pledge:create' OR event NOT LIKE 'members:%')`).get(now() - 60 * 864e5),
+    lastImport: kvGet<{ ts: number; added: number; latest: number | null }>('sales_import_last') ?? null,
+  }));
+  // Patreon has no shop API, so sales come in through the CSV from Audience -> Sales. Re-importing is safe: every row has an id.
+  app.post('/api/sales/import', async (req, reply) => {
+    const { rows } = req.body as { rows: { id?: string; ts: number; product: string; amount_cents: number; refunded?: boolean; customer?: string }[] };
+    if (!Array.isArray(rows) || !rows.length) return reply.code(400).send({ error: 'No rows to import' });
+    const ins = db.prepare(`INSERT OR IGNORE INTO sales (platform, product, amount_cents, event, customer, ts, ext_id) VALUES ('patreon', ?, ?, ?, ?, ?, ?)`);
+    let added = 0, skipped = 0, refunded = 0, latest = 0;
+    for (const r of rows.slice(0, 20000)) {
+      if (!r.product || !Number.isFinite(r.ts) || !Number.isFinite(r.amount_cents)) continue;
+      const ext = `shop:${r.id || createHash('sha1').update(`${r.ts}|${r.product}|${r.amount_cents}|${r.customer ?? ''}`).digest('hex')}`;
+      const cust = r.customer ? createHash('sha256').update(r.customer).digest('hex').slice(0, 10) : null;   // never store the e-mail itself
+      const res = ins.run(String(r.product).slice(0, 200), r.refunded ? 0 : Math.round(r.amount_cents), r.refunded ? 'shop:refunded' : 'shop:sale', cust, Math.round(r.ts), ext);
+      if (res.changes) { added++; if (r.refunded) refunded++; latest = Math.max(latest, r.ts); } else skipped++;
+    }
+    const prev = kvGet<{ latest: number | null }>('sales_import_last');
+    kvSet('sales_import_last', { ts: now(), added, latest: latest || prev?.latest || null });
+    logActivity(`Imported ${added} Patreon shop sales${skipped ? ` (${skipped} were already there)` : ''}`, who(req));
+    return { added, skipped, refunded };
+  });
   app.get('/api/signals', async (req) => {
     const q = req.query as { days?: string; kind?: string };
     const days = Number(q.days) || 7;

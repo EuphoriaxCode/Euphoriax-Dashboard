@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import {
-  contentPerformance, latestMetrics, products, recentSales, recentSignals, signalKeywords, trends, viewsByPlatform,
+  contentPerformance, latestMetrics, products, recentSales, recentSignals, signalKeywords, topProducts, trends, viewsByPlatform,
 } from '../data.js';
 import { db, logActivity, now } from '../db.js';
 import { notify } from '../notify.js';
@@ -67,6 +67,7 @@ export function buildSnapshot() {
     worstRecent: contentPerformance({ days: 7, limit: 1000 }).filter((c) => c.published_at > now() - 14 * 864e5).slice(-5)
       .map((c) => ({ platform: c.platform, title: c.title, views: c.views })),
     patreonProducts: products().map((p) => ({ name: p.name, priceUsd: p.price_cents / 100, members: p.members, revenueUsd: p.revenue_cents / 100 })),
+    bestSellers30d: topProducts(30, 10).map((p) => ({ product: p.product, sales: p.n, revenueUsd: p.cents / 100 })),
     recentSales: recentSales(14).slice(0, 40).map((s) => ({ product: s.product, usd: (s.amount_cents ?? 0) / 100, event: s.event, date: new Date(s.ts).toISOString().slice(0, 10) })),
     discordKeywords7d: signalKeywords(7, 30),
     discordMessages48h: recentSignals(2, 120).map((s) => `[${s.kind}] ${s.text.slice(0, 280)}`),

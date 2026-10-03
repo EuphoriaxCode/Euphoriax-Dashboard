@@ -246,8 +246,10 @@ async function overview() {
       </div>
 
       <div class="card">
-        <div class="spread"><h2>What's selling</h2><a class="small" href="#incoming/sales">Sales →</a></div>
-        ${productTable(d.products)}
+        <div class="spread"><h2>What's selling · 30 days</h2><a class="small" href="#incoming/sales">Sales →</a></div>
+        ${d.topProducts.length ? d.topProducts.map((v) => `<div class="bar-row"><span>${esc(v.product)}</span>${bar(v.cents, Math.max(...d.topProducts.map((x) => x.cents)), `${v.n} sales · ${money(v.cents)}`)}<span class="num">${money(v.cents)}</span></div>`).join('')
+          : empty('No sales yet. <a href="#incoming/sales">Import your Patreon sales</a> (the shop has no live feed).')}
+        ${d.products.length ? `<h3 style="margin:12px 0 6px">Membership tiers</h3>${productTable(d.products)}` : ''}
         <div class="spread" style="margin-top:16px"><h2>UEFN trends</h2><a class="small" href="#incoming/trends">Trends →</a></div>
         ${trendTable(d.trends?.data?.topTrends?.slice(0, 5))}
       </div>
@@ -295,6 +297,8 @@ function inboxHtml(d) {
   for (const p of i.postsToHandle) items.push(`<div class="inbox-item spread" data-post="${p.id}"><div><span class="tag ${p.status === 'manual' ? '' : 'dark'}">${p.status === 'manual' ? 'post this' : 'post ' + esc(p.status)}</span>
     <strong>${esc(p.title)}</strong> <span class="small muted">${p.platforms.split(',').map(pname).join(', ')}</span></div>
     <div class="row">${p.status === 'manual' && p.id ? `<a class="btn" href="media/${p.id}" target="_blank">Video</a>` : ''}<button data-act="published">Done, it's posted</button></div></div>`);
+  if (i.importSalesDue) items.push(`<div class="inbox-item spread"><div><span class="tag dark">weekly</span> <strong>Import this week's Patreon shop sales</strong>
+    <div class="small muted">Patreon → Audience → Sales → Download CSV, then upload it on the Sales page.</div></div><a class="btn" href="#incoming/sales">Import →</a></div>`);
   if (i.updates?.length) items.push(`<div class="inbox-item spread"><div><span class="tag dark">update</span> <strong>New version available</strong>
     <div class="small muted">${i.updates.map((u) => `${esc(u.label)} (${u.behind})`).join(' · ')}</div></div><a class="btn" href="#status">Update →</a></div>`);
   if (i.drafts) items.push(`<div class="inbox-item spread"><div><span class="tag dark">review</span> <strong>${i.drafts} new answer${i.drafts > 1 ? 's' : ''} for the Discord bots</strong>
@@ -487,29 +491,163 @@ async function contentPage(el, days = 7, platform = '') {
 // A sale is a new patron or a manually added sale. Plan changes, cancellations and other Patreon events are not.
 const isNewSale = (s) => s.amount_cents > 0 && (s.event === 'members:pledge:create' || !String(s.event).startsWith('members:'));
 
+// ---------- CSV import of Patreon shop sales (Patreon has no shop API) ----------
+function parseCsv(text) {
+  text = text.replace(/^﻿/, '');
+  const first = text.split('\n', 1)[0];
+  const delim = [',', ';', '\t'].map((d) => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === delim) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); cur = ''; if (row.some((x) => x.trim() !== '')) rows.push(row); row = []; }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); if (row.some((x) => x.trim() !== '')) rows.push(row); }
+  return rows;
+}
+
+function parseAmount(v) {
+  let s = String(v ?? '').trim();
+  if (!s) return NaN;
+  const neg = /^\(.*\)$|^-/.test(s);
+  s = s.replace(/[^\d.,]/g, '');
+  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+  if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  else if (lc > -1) s = /,\d{1,2}$/.test(s) ? s.replace(',', '.') : s.replace(/,/g, '');   // "12,50" is a decimal comma, "1,250" is thousands
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? Math.round(n * 100) * (neg ? -1 : 1) : NaN;
+}
+
+const DMY = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:[ T,]+(\d{1,2}):(\d{2}))?/;
+/** 01/10/2026 can be 1 October or 10 January: the file decides (a day above 12 gives it away), otherwise day first. */
+function detectDayFirst(values) {
+  let first = false, second = false;
+  for (const v of values) { const m = String(v ?? '').trim().match(DMY); if (!m) continue; if (Number(m[1]) > 12) first = true; if (Number(m[2]) > 12) second = true; }
+  return second && !first ? false : true;
+}
+function parseDateCell(v, dayFirst = true) {
+  const s = String(v ?? '').trim();
+  const m = s.match(DMY);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    const d = dayFirst ? a : b, mo = dayFirst ? b : a;
+    return new Date(Number(m[3]), mo - 1, d, Number(m[4] ?? 0), Number(m[5] ?? 0)).getTime();
+  }
+  let t = Date.parse(s);
+  if (Number.isNaN(t)) t = Date.parse(s.replace(' ', 'T'));
+  return t;
+}
+
+/** Best guess which column is which, from the header names. The user can change every choice before importing. */
+function guessColumns(h) {
+  const find = (...res) => { for (const re of res) { const i = h.findIndex((x) => re.test(x)); if (i >= 0) return i; } return -1; };
+  return {
+    product: find(/product|item|listing|title/i, /name/i),
+    date: find(/purchase.*(date|time)|(date|time).*purchase|created|paid.*at|date|time|datum/i),
+    amount: find(/^total|total|totaal/i, /amount|bedrag/i, /price|prijs/i, /paid|betaald/i, /gross/i),
+    status: find(/status|state|refund|terugbetal/i),
+    id: find(/order.*id|purchase.*id|transaction|reference|^id$|order/i),
+    customer: find(/e-?mail/i, /customer|patron|buyer|user/i),
+  };
+}
+
+function importCard(last) {
+  return `<div class="card strong" id="imp-card"><div class="spread"><h2>Import Patreon shop sales</h2>
+      <span class="small muted">${last ? `last import ${ago(last.ts)}${last.latest ? ` · newest sale in it: ${new Date(last.latest).toLocaleDateString('en-GB')}` : ''}` : 'not imported yet'}</span></div>
+    <p class="small" style="margin:0 0 8px">Patreon does not offer a shop API, so sales come in through its own export. Once a week (or whenever you like):
+      <strong>patreon.com → Audience → Sales → Download CSV</strong>, then choose that file here. Uploading the same sales twice is safe, nothing is counted double.
+      E-mail addresses are never stored, only a short anonymous code.</p>
+    <input type="file" id="imp-file" accept=".csv,text/csv,.txt">
+    <div id="imp-body" style="margin-top:12px"></div></div>`;
+}
+
+function bindImport(reload) {
+  const body = $('#imp-body');
+  $('#imp-file').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const table = parseCsv(await file.text());
+    if (table.length < 2) { body.innerHTML = '<div class="empty">That file has no rows.</div>'; return; }
+    const headers = table[0].map((x) => x.trim());
+    const data = table.slice(1);
+    const cols = guessColumns(headers);
+    const opt = (sel) => `<option value="-1">(none)</option>${headers.map((x, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${esc(x)}</option>`).join('')}`;
+
+    const build = () => {
+      const g = (r, i) => (i >= 0 ? r[i] ?? '' : '');
+      const out = []; let bad = 0;
+      const dayFirst = detectDayFirst(data.map((r) => g(r, cols.date)));
+      for (const r of data) {
+        const amount = parseAmount(g(r, cols.amount)), ts = parseDateCell(g(r, cols.date), dayFirst), product = g(r, cols.product).trim();
+        if (!product || Number.isNaN(amount) || Number.isNaN(ts)) { bad++; continue; }
+        const status = g(r, cols.status);
+        out.push({ id: g(r, cols.id).trim() || undefined, ts, product, amount_cents: Math.abs(amount), customer: g(r, cols.customer).trim() || undefined,
+          refunded: amount < 0 || /refund|chargeback|cancel|void|fail|terugbetaald|geannuleerd/i.test(status), status });
+      }
+      return { out, bad };
+    };
+
+    const render = () => {
+      const { out, bad } = build();
+      const ok = out.filter((r) => !r.refunded);
+      const total = ok.reduce((n, r) => n + r.amount_cents, 0);
+      const dates = out.map((r) => r.ts);
+      body.innerHTML = `
+        <div class="grid g3" style="margin-bottom:10px">
+          ${[['product', 'Product'], ['date', 'Date'], ['amount', 'Amount'], ['status', 'Status (refunds)'], ['id', 'Order id (avoids doubles)'], ['customer', 'E-mail / buyer']]
+            .map(([k, l]) => `<label>${l}<select data-col="${k}">${opt(cols[k])}</select></label>`).join('')}
+        </div>
+        <div class="${out.length ? '' : 'inbox'}" style="margin-bottom:8px">${out.length
+          ? `<strong>${ok.length}</strong> sales · <strong>${money(total)}</strong>${out.length > ok.length ? ` · ${out.length - ok.length} refunded or cancelled (not counted)` : ''}
+             · ${new Date(Math.min(...dates)).toLocaleDateString('en-GB')} to ${new Date(Math.max(...dates)).toLocaleDateString('en-GB')}${bad ? ` · <span class="muted">${bad} rows skipped (no product, date or amount)</span>` : ''}`
+          : 'Nothing readable yet. Pick which column holds the product, the date and the amount.'}</div>
+        ${out.length ? `<div class="table-wrap"><table><tr><th>Date</th><th>Product</th><th class="num">Amount</th><th>Status</th></tr>${out.slice(0, 5).map((r) =>
+          `<tr><td class="small">${when(r.ts)}</td><td>${esc(r.product)}</td><td class="num">${money(r.amount_cents)}</td><td class="small muted">${esc(r.refunded ? 'refunded' : r.status || 'ok')}</td></tr>`).join('')}</table></div>
+          <div class="small muted" style="margin:4px 0 8px">First 5 of ${out.length} rows. Check that dates and amounts look right before importing.</div>` : ''}
+        <button class="primary" id="imp-go" ${out.length ? '' : 'disabled'}>Import ${out.length} rows</button>`;
+      body.querySelectorAll('[data-col]').forEach((sel) => sel.onchange = () => { cols[sel.dataset.col] = Number(sel.value); render(); });
+      $('#imp-go').onclick = async () => {
+        $('#imp-go').disabled = true; $('#imp-go').textContent = 'Importing…';
+        let added = 0, skipped = 0;
+        try {
+          for (let i = 0; i < out.length; i += 2000) {
+            const r = await api('/api/sales/import', { json: { rows: out.slice(i, i + 2000) } });
+            added += r.added; skipped += r.skipped;
+          }
+          toast(`${added} sales added${skipped ? `, ${skipped} were already there` : ''}`);
+          reload();
+        } catch (err) { toast(err.message); render(); }
+      };
+    };
+    render();
+  };
+}
+
 async function salesPage(el) {
   const d = await api('/api/sales');
-  const byProduct = {};
-  for (const s of d.sales) if (isNewSale(s)) (byProduct[s.product] ??= { n: 0, cents: 0 }), byProduct[s.product].n++, byProduct[s.product].cents += s.amount_cents;
-  const rows = Object.entries(byProduct).sort((a, b) => b[1].cents - a[1].cents);
-  const max = Math.max(1, ...rows.map(([, v]) => v.cents));
+  const rows = d.topProducts;
+  const max = Math.max(1, ...rows.map((v) => v.cents));
   el.innerHTML = `
     <div class="kpis">
-      ${kpi('Monthly revenue', money(d.metrics.monthly_revenue_cents?.value), `${signed((d.metrics.monthly_revenue_cents?.change7d ?? 0) / 100)} $ this week`)}
-      ${kpi('Patrons', fmt(d.metrics.patrons?.value), `${signed(d.metrics.patrons?.change7d)} this week`)}
-      ${kpi('Paid members', fmt(d.metrics.paid_members?.value), '')}
-      ${kpi('New sales (60d)', String(d.sales.filter(isNewSale).length), money(d.sales.filter(isNewSale).reduce((a, s) => a + s.amount_cents, 0)))}
+      ${kpi('Sales (60 days)', String(d.totals.n), 'shop products and new patrons')}
+      ${kpi('Revenue from sales (60 days)', money(d.totals.cents), '')}
+      ${kpi('Monthly membership revenue', money(d.metrics.monthly_revenue_cents?.value), d.metrics.monthly_revenue_cents ? `${d.metrics.patrons?.value ?? 0} patrons` : 'Patreon not connected')}
     </div>
-    <div class="grid g2">
-      <div class="card"><h2 style="margin-bottom:8px">Tiers & products (current)</h2>${productTable(d.products)}</div>
-      <div class="card"><h2 style="margin-bottom:8px">New sales by product · 60 days</h2>
-        ${rows.length ? rows.map(([name, v]) => `<div class="bar-row"><span>${esc(name)}</span>${bar(v.cents, max, `${v.n} sales · ${money(v.cents)}`)}<span class="num">${money(v.cents)}</span></div>`).join('') : empty('No sales events yet. Add the Patreon webhook (see Setup).')}
+    ${importCard(d.lastImport)}
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><h2 style="margin-bottom:8px">Best sellers · 60 days</h2>
+        ${rows.length ? rows.map((v) => `<div class="bar-row"><span>${esc(v.product)}</span>${bar(v.cents, max, `${v.n} sales · ${money(v.cents)}`)}<span class="num">${money(v.cents)}</span></div>`).join('') : empty('No sales yet. Import your Patreon sales above.')}
       </div>
+      <div class="card"><h2 style="margin-bottom:8px">Membership tiers (current)</h2>${productTable(d.products)}</div>
     </div>
-    <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Sales log</h2><div class="table-wrap"><table>
-      <tr><th>When</th><th>Platform</th><th>Product</th><th>Event</th><th class="num">Amount</th></tr>
-      ${d.sales.map((s) => `<tr><td class="small">${when(s.ts)}</td><td>${pname(s.platform)}</td><td>${esc(s.product)}</td><td class="small muted">${esc(s.event)}</td><td class="num">${money(s.amount_cents)}</td></tr>`).join('') || `<tr><td colspan="5">${empty('Nothing yet.')}</td></tr>`}
+    <div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest sales</h2><div class="table-wrap"><table>
+      <tr><th>When</th><th>Product</th><th>Event</th><th class="num">Amount</th></tr>
+      ${d.sales.slice(0, 100).map((s) => `<tr><td class="small">${when(s.ts)}</td><td>${esc(s.product)}</td><td class="small muted">${esc(s.event)}</td><td class="num">${money(s.amount_cents)}</td></tr>`).join('') || `<tr><td colspan="4">${empty('Nothing yet.')}</td></tr>`}
     </table></div></div>`;
+  bindImport(() => salesPage(el));
 }
 
 async function communityPage(el, kind = '') {

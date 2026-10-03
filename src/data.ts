@@ -115,3 +115,10 @@ export function questionKeywords(days = 14, top = 15) {
   }
   return [...counts].sort((a, b) => b[1] - a[1]).slice(0, top).map(([word, count]) => ({ word, count }));
 }
+
+/** What sold best lately: shop products and new patrons alike, by revenue. Refunds, cancellations and plan changes are excluded. */
+export function topProducts(days = 30, limit = 8) {
+  return db.prepare(`SELECT product, COUNT(*) n, SUM(amount_cents) cents FROM sales
+    WHERE ts > ? AND amount_cents > 0 AND (event = 'members:pledge:create' OR event NOT LIKE 'members:%')
+    GROUP BY product ORDER BY cents DESC LIMIT ?`).all(now() - days * DAY, limit) as { product: string; n: number; cents: number }[];
+}

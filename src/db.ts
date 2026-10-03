@@ -118,10 +118,12 @@ for (const sql of [
   'ALTER TABLE signals ADD COLUMN ext_id TEXT',
   "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'build'",
   'ALTER TABLE jobs ADD COLUMN report_id INTEGER',
+  'ALTER TABLE sales ADD COLUMN ext_id TEXT',
 ]) {
   try { db.exec(sql); } catch { /* already there */ }
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS signals_ext ON signals (ext_id)');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS sales_ext ON sales (ext_id)');   // imported sales are never counted twice
 
 export const now = () => Date.now();
 
