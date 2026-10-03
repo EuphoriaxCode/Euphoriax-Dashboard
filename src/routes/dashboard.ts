@@ -11,7 +11,7 @@ import { buddy, buddyCache, buddyList, discordLink, refreshBuddy } from '../conn
 import { trendsApi } from '../connectors/uefnTrends.js';
 import { publicSettings, saveSettings } from '../settings.js';
 import {
-  contentPerformance, latestMetrics, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
+  contentPerformance, historyDays, latestMetrics, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
   trends, viewsByPlatform,
 } from '../data.js';
 import { db, logActivity, now } from '../db.js';
@@ -58,6 +58,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       buddyConnected: !!b,
       services: svc,
       metrics: latestMetrics(),
+      historyDays: historyDays(),
       views7d: viewsByPlatform(7),
       views1d: viewsByPlatform(1),
       topContent: contentPerformance({ days: 7, limit: 8 }),

@@ -171,10 +171,17 @@ async function overview() {
   const m = d.metrics;
   const totalViews7 = Object.values(d.views7d).reduce((a, p) => a + p.gained, 0);
   const totalViews1 = Object.values(d.views1d).reduce((a, p) => a + p.gained, 0);
-  const followers = ['tiktok', 'youtube', 'instagram', 'twitter'].reduce((a, p) => {
-    const k = m[p]?.followers ?? m[p]?.subscribers;
-    return { v: a.v + (k?.value ?? 0), c: a.c + (k?.change7d ?? 0) };
-  }, { v: 0, c: 0 });
+  const fm = ['tiktok', 'youtube', 'instagram', 'twitter'].map((p) => m[p]?.followers ?? m[p]?.subscribers).filter(Boolean);
+  const followers = { v: fm.reduce((n, k) => n + k.value, 0) };
+  const young = fm.some((k) => k.change7d === null);   // less than a week of history for at least one platform
+  followers.c = fm.reduce((n, k) => n + (k.change7d ?? k.changeAll ?? 0), 0);
+  followers.label = young ? (fm.some((k) => k.changeAll !== null) ? 'since connected' : 'just connected, growth shows up soon') : 'this week';
+  // "this week" / "since connected" text for a single metric
+  const delta = (k, scale = 1) => !k ? '' : k.change7d !== null ? `${signed(k.change7d / scale)} this week` : k.changeAll !== null ? `${signed(k.changeAll / scale)} since connected` : 'just connected';
+  const totalOnVideos = Object.values(d.views7d).reduce((a, p) => a + p.total, 0);
+  const viewsNote = d.historyDays < 7
+    ? `collecting data: day ${Math.min(7, Math.floor(d.historyDays) + 1)} of 7${totalOnVideos ? ` · ${fmt(totalOnVideos)} views in total on your recent videos` : ''}`
+    : `${fmt(totalViews1)} in last 24h`;
   const down = d.services.filter((s) => s.status === 'offline');
   const report = d.report?.json;
   const running = d.jobs.find((j) => j.status === 'running');
@@ -189,10 +196,10 @@ async function overview() {
       <span>${down.map((s) => esc(s.label ?? s.name)).join(' · ')}</span><a href="#status">See status →</a></div></div>` : ''}
 
     <div class="kpis">
-      ${kpi('Views (7 days)', fmt(totalViews7), `${fmt(totalViews1)} in last 24h`)}
-      ${kpi('Followers (all socials)', fmt(followers.v), `${signed(followers.c)} this week`)}
-      ${kpi('Patreon / month', money(m.patreon?.monthly_revenue_cents?.value), `${signed(m.patreon?.monthly_revenue_cents?.change7d / 100)} $ this week`)}
-      ${kpi('Patrons', fmt(m.patreon?.patrons?.value), `${signed(m.patreon?.patrons?.change7d)} this week`)}
+      ${kpi('Views (7 days)', fmt(totalViews7), viewsNote)}
+      ${kpi('Followers (all socials)', fmt(followers.v), young && !fm.some((k) => k.changeAll !== null) ? 'just connected: growth shows up from tomorrow' : `${signed(followers.c)} ${followers.label}`)}
+      ${kpi('Patreon / month', money(m.patreon?.monthly_revenue_cents?.value), delta(m.patreon?.monthly_revenue_cents, 100).replace(/^([+-]?\d+)/, '$1 $'))}
+      ${kpi('Patrons', fmt(m.patreon?.patrons?.value), delta(m.patreon?.patrons))}
       ${kpi('Sales (7 days)', money(d.sales7d.cents), `${d.sales7d.n} sales`)}
       ${kpi('Discord members', fmt(m.discord?.members?.value), `${fmt(m.discord?.online?.value)} online · ${d.signals24h} msgs/24h`)}
     </div>

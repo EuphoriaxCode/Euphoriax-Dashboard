@@ -8,11 +8,17 @@ export function latestMetrics() {
   const rows = db.prepare(`SELECT m.platform, m.key, m.value, m.ts FROM metrics m
     JOIN (SELECT platform, key, MAX(ts) ts FROM metrics GROUP BY platform, key) l
       ON l.platform = m.platform AND l.key = m.key AND l.ts = m.ts`).all() as any[];
-  const out: Record<string, Record<string, { value: number; change7d: number | null }>> = {};
+  // change7d needs a number from a week ago. Until we have one (the first week after connecting), changeAll is the
+  // change since the first number we saw, so the dashboard can say "since connected" instead of a misleading +0.
+  const out: Record<string, Record<string, { value: number; change7d: number | null; changeAll: number | null }>> = {};
   const before = db.prepare(`SELECT value FROM metrics WHERE platform = ? AND key = ? AND ts <= ? ORDER BY ts DESC LIMIT 1`);
+  const first = db.prepare(`SELECT value, ts FROM metrics WHERE platform = ? AND key = ? ORDER BY ts ASC LIMIT 1`);
   for (const r of rows) {
     const old = before.get(r.platform, r.key, r.ts - 7 * DAY) as { value: number } | undefined;
-    (out[r.platform] ??= {})[r.key] = { value: r.value, change7d: old ? r.value - old.value : null };
+    const f = first.get(r.platform, r.key) as { value: number; ts: number } | undefined;
+    (out[r.platform] ??= {})[r.key] = {
+      value: r.value, change7d: old ? r.value - old.value : null, changeAll: f && f.ts < r.ts ? r.value - f.value : null,
+    };
   }
   return out;
 }
@@ -32,6 +38,12 @@ export function contentPerformance({ days = 7, platform = '', limit = 50 } = {})
     FROM content c WHERE (? = '' OR c.platform = ?)
     ORDER BY gained DESC, c.views DESC LIMIT ?`)
     .all(since, since, platform, platform, limit) as any[];
+}
+
+/** How many days of view snapshots we have (the 7-day view numbers only become complete after 7 days). */
+export function historyDays() {
+  const r = db.prepare('SELECT MIN(ts) t FROM content_snapshots').get() as { t: number | null };
+  return r.t ? (now() - r.t) / DAY : 0;
 }
 
 export function viewsByPlatform(days = 7) {
