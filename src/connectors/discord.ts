@@ -3,9 +3,9 @@ import { recordMetric } from '../db.js';
 import { getJson, type Connector } from './types.js';
 
 export const discord: Connector = {
-  name: 'Discord server',
+  name: 'Discord member count',
   platform: 'discord',
-  setup: 'DISCORD_BOT_TOKEN + DISCORD_GUILD_ID (any bot in the server works; messages come in via /api/ingest/signal)',
+  setup: 'A bot token + server ID on the Setup page (you can reuse a Bot Buddy token)',
   configured: () => !!(config.discord.botToken && config.discord.guildId),
   async collect() {
     const g = await getJson(`https://discord.com/api/v10/guilds/${config.discord.guildId}?with_counts=true`, {

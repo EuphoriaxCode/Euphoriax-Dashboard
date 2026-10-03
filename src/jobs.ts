@@ -7,18 +7,19 @@ import { config } from './config.js';
 export interface Job {
   id: number; title: string; prompt: string; position: number; status: string; machine: string | null;
   started_at: number | null; finished_at: number | null; summary: string | null; log: string; attempts: number;
-  idea_id: number | null; created_at: number; created_by: string | null;
+  idea_id: number | null; created_at: number; created_by: string | null; kind: string; report_id: number | null;
 }
 
 const MAX_LOG = 200_000;
 
-export function addJob(title: string, prompt: string, who: string, ideaId: number | null = null, top = false) {
+export function addJob(title: string, prompt: string, who: string, ideaId: number | null = null, top = false,
+  kind: 'build' | 'analysis' = 'build', reportId: number | null = null) {
   const edge = db.prepare(`SELECT ${top ? 'MIN' : 'MAX'}(position) p FROM jobs WHERE status = 'queued'`).get() as { p: number | null };
   const position = edge.p === null ? 1000 : top ? edge.p - 1 : edge.p + 1;
-  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(now(), who, title, prompt, position, ideaId).lastInsertRowid);
+  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id, kind, report_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(now(), who, title, prompt, position, ideaId, kind, reportId).lastInsertRowid);
   if (ideaId) db.prepare(`UPDATE ideas SET status = 'queued' WHERE id = ?`).run(ideaId);
-  logActivity(`Queued build "${title}"`, who);
+  if (kind === 'build') logActivity(`Queued build "${title}"`, who);
   return id;
 }
 
@@ -44,7 +45,8 @@ export function claimNext(machine: string): Job | null {
       .run(machine, now(), job.id);
     db.exec('COMMIT');
     logActivity(`${machine} started "${job.title}"`, machine);
-    void notify(`🛠️ **${machine}** started building "${job.title}"`);
+    if (job.kind === 'analysis' && job.report_id) db.prepare(`UPDATE reports SET status = 'running' WHERE id = ?`).run(job.report_id);
+    else void notify(`🛠️ **${machine}** started building "${job.title}"`);
     return { ...job, status: 'running' };
   } catch (err) {
     db.exec('ROLLBACK');
@@ -59,9 +61,23 @@ export function appendLog(id: number, chunk: string) {
   return { cancel: job.status === 'cancelled' };
 }
 
-export function finishJob(id: number, status: 'done' | 'failed' | 'requeue', summary: string) {
+export async function finishJob(id: number, status: 'done' | 'failed' | 'requeue', summary: string, output = '') {
   const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as Job | undefined;
   if (!job) return;
+  if (job.kind === 'analysis' && job.report_id && status !== 'requeue') {
+    // The build PC did the daily analysis with the Claude subscription: store it as a report.
+    const { saveReport, failReport } = await import('./ai/daily.js');
+    db.prepare(`UPDATE jobs SET status = ?, finished_at = ?, summary = ? WHERE id = ?`)
+      .run(status, now(), status === 'done' ? 'Report saved' : summary, id);
+    if (status === 'done') {
+      try { await saveReport(job.report_id, output || summary, null, job.machine ?? 'machine'); }
+      catch (err) {
+        failReport(job.report_id, `Could not read the report: ${err instanceof Error ? err.message : err}`, job.machine ?? 'machine');
+        db.prepare(`UPDATE jobs SET status = 'failed', summary = 'Report could not be parsed' WHERE id = ?`).run(id);
+      }
+    } else failReport(job.report_id, summary || 'build PC run failed', job.machine ?? 'machine');
+    return;
+  }
   if (status === 'requeue') {
     // e.g. Claude usage limit hit - put it back at the front so it runs first when the limit resets.
     db.prepare(`UPDATE jobs SET status = 'queued', machine = NULL, summary = ?, position = (SELECT COALESCE(MIN(position), 1000) - 1 FROM jobs WHERE status = 'queued') WHERE id = ?`)

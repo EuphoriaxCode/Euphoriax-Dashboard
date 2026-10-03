@@ -7,7 +7,7 @@ const API = 'https://www.patreon.com/api/oauth2/v2';
 export const patreon: Connector = {
   name: 'Patreon',
   platform: 'patreon',
-  setup: 'PATREON_ACCESS_TOKEN (creator access token from patreon.com/portal) and optionally PATREON_WEBHOOK_SECRET',
+  setup: 'Patreon creator access token on the Setup page',
   configured: () => !!config.patreon.token,
   async collect() {
     const headers = { authorization: `Bearer ${config.patreon.token}` };

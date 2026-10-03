@@ -128,6 +128,19 @@ db.prepare(`INSERT INTO posts (created_at, created_by, title, caption, platforms
   .run(t - DAY, 'Daily Reward system', 'Free daily rewards for your map 🎁', 'tiktok,youtube,instagram,twitter', t - DAY, 'published',
     JSON.stringify({ tiktok: { status: 'published' }, youtube: { status: 'published' }, instagram: { status: 'published' }, twitter: { status: 'published' } }));
 
+const iso = (msAgo: number) => new Date(t - msAgo).toISOString();
+kvSet('buddy_cache', {
+  ts: t,
+  status: { status: 'healthy', bots: { founderA: { connected: true, latencyMs: 42 }, founderB: { connected: true, latencyMs: 51 } },
+    ai: { healthy: true, callsToday: 31, estimatedCostToday: 0.012 }, tickets: { open: 1 }, unresolved: 2, moderationActionsToday: 7 },
+  personas: [{ id: 'FOUNDER_A', displayName: 'Founder A' }, { id: 'FOUNDER_B', displayName: 'Founder B' }],
+  unresolved: [
+    { id: 'demo-q1', username: 'kevin', question: 'Does the pet system save progress between sessions?', reason: 'NO_KNOWLEDGE', createdAt: iso(40 * 6e4), conversationContext: null },
+    { id: 'demo-q2', username: 'lisa', question: 'Is there a discount if I buy the bundle?', reason: 'SENSITIVE_REQUEST', createdAt: iso(3 * 36e5), conversationContext: null },
+  ],
+  tickets: [{ id: 'demo-t1', ticketNumber: 14, category: 'purchase', status: 'OPEN', summary: 'Paid on Patreon, no Discord role yet', createdAt: iso(5 * 36e5) }],
+  proposals: [{ id: 'demo-p1', question: 'How do I install the Daily Reward system?', answer: 'Drag the device into your level, link the widget, then push changes.' }],
+});
 kvSet('demo', true);
 logActivity('Demo data loaded', 'demo');
 console.log('Demo data loaded.');

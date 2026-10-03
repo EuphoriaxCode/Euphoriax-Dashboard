@@ -24,7 +24,7 @@ async function accessToken() {
 export const tiktok: Connector = {
   name: 'TikTok',
   platform: 'tiktok',
-  setup: 'TIKTOK_CLIENT_KEY + TIKTOK_CLIENT_SECRET + TIKTOK_REFRESH_TOKEN (TikTok for Developers, scopes user.info.stats + video.list)',
+  setup: 'TikTok client key, secret and refresh token on the Setup page',
   configured: () => !!(config.tiktok.clientKey && config.tiktok.clientSecret && config.tiktok.refreshToken),
   async collect() {
     const auth = { authorization: `Bearer ${await accessToken()}` };

@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
+import { kvGet, kvSet } from './db.js';
 
 const SESSION_DAYS = 14;
 export const COOKIE = 'eux_session';
@@ -19,13 +20,29 @@ function verifyPassword(password: string, stored: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Accounts made on the first-run screen (stored in the db) plus any from DASHBOARD_USERS. */
 function users() {
-  const map = new Map<string, string>();
+  const map = new Map<string, string>(Object.entries(kvGet<Record<string, string>>('users') ?? {}));
   for (const entry of config.users.split(',')) {
     const i = entry.indexOf(':');
     if (i > 0) map.set(entry.slice(0, i).trim().toLowerCase(), entry.slice(i + 1).trim());
   }
   return map;
+}
+
+export const needsFirstAccount = () => users().size === 0;
+export const userNames = () => [...users().keys()];
+
+export function setPassword(name: string, password: string) {
+  const all = kvGet<Record<string, string>>('users') ?? {};
+  all[name.trim().toLowerCase()] = hashPassword(password);
+  kvSet('users', all);
+}
+
+export function removeUser(name: string) {
+  const all = kvGet<Record<string, string>>('users') ?? {};
+  delete all[name];
+  kvSet('users', all);
 }
 
 export function checkLogin(name: string, password: string): string | null {

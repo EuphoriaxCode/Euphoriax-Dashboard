@@ -1,79 +1,97 @@
 # Euphoriax HQ (dashboard)
 
-Our private control panel: **Incoming** (views, sales, Discord asks, UEFN trends), a **daily AI report** with ideas,
-and **Outgoing** (multi-platform video posting + the UEFN build-machine queue). Black and white, no frills.
+Our private control panel. Open it in the morning and see **what needs you, what's working, and what to make next**.
+Black and white, no frills.
 
-How it works and why: [docs/PLAN.md](docs/PLAN.md).
+- **Needs you** (top of the page): Discord questions the bots couldn't answer (type the answer, the bot posts it), knowledge
+  the bots want to learn, failed builds, posts to do. Empty = nothing to do.
+- **Incoming**: views per video, Patreon sales, Discord (bots, tickets, questions), what people say, UEFN trends, growth.
+- **AI**: a daily report with ideas. One click sends an idea to the build PC or turns it into a post.
+- **Outgoing**: upload a video, get captions per platform, schedule it. **Build queue**: prompts the UEFN build PC works through.
+- **Status**: every bot, trend source, the build PC and every connection: online or offline. You get a Discord ping when something goes down.
 
-| Page | What's there |
+It plugs into what we already have:
+
+| Ours | How it connects |
 |---|---|
-| Overview | KPIs, today's AI brief, ideas to decide on, build machine, top content, what's selling, UEFN trends, community asks, posts, services, activity |
-| Incoming | Content & views (views gained per window), Sales, Community (Discord messages + keywords), UEFN trends, Growth (30-day charts) |
-| AI | Daily report + history, ideas with one-click "build" / "post" / "dismiss", "Run analysis now" |
-| Outgoing | Upload video → AI captions per platform → schedule → auto-publish; post history with per-platform result |
-| Build queue | Prompt queue for the UEFN PC: reorder, cancel, live log, results, re-run |
-| Status | Every bot, connector, website and machine: online / offline, last seen |
-| Setup | What's connected and what still needs a key, with copy-paste examples |
+| [Discord-Bot-Buddy](https://github.com/EuphoriaxCode/Discord-Bot-Buddy) | Reads its dashboard API: bot status, unanswered questions (you answer from here), tickets, knowledge proposals, real user questions for the AI. Optional webhook for instant updates. |
+| [UEFN-Trends](https://github.com/EuphoriaxCode/UEFN-Trends) | Top trends, breakouts, memes, daily trend report, health of each source. "Track" and "Fresh trend report" buttons. |
+| [UEFN-MCP-Guidelines](https://github.com/EuphoriaxCode/UEFN-MCP-Guidelines) | Every build prompt tells Claude on the build PC to follow `MCP_RULES.md` first. |
+| Claude subscription | The build PC runs prompts (and by default also the daily analysis) with Claude Code. No API key needed. |
 
-## Run it
-
-Needs Node 22.13+ (uses the built-in `node:sqlite`, no database server).
+## Install (on the VPS where Bot Buddy and UEFN Trends run)
 
 ```bash
-npm install
-cp .env.example .env                       # fill in what you have; everything is optional except login
-npm run hash-password -- tom 'password'    # put the output (both of you, comma-separated) in DASHBOARD_USERS
-npm run seed:demo                          # optional: fake data to see what it looks like
-npm run dev                                # http://localhost:3200
+git clone https://github.com/EuphoriaxCode/Euphoriax-Dashboard && cd Euphoriax-Dashboard
+docker compose up -d
 ```
 
-Production: `npm run build && npm start` (or the `Dockerfile`; mount `/data`).
+Add the block from `Caddyfile.example` to the euphoriax.net Caddy config (or use the nginx snippet below), then:
 
-## Hosting on euphoriax.net
+1. Open **https://euphoriax.net/dashboard** and create both logins (first visit only).
+2. Go to **Setup**. Bot Buddy and UEFN Trends are found automatically when they run on the same server. Paste Bot Buddy's
+   `DASHBOARD_API_KEY`, press **Test**, done. Add other platforms whenever you want; each starts working when you save.
+3. On the build PC: **Build queue → Download start file**, put it in the UEFN project folder, double-click.
+   (Once: install Node.js and log in to Claude by running `claude` in a terminal.)
 
-Run it next to the website as its own process and proxy a path to it. Set `BASE_PATH=/dashboard` and
-`PUBLIC_URL=https://euphoriax.net/dashboard`. nginx:
+That's it. No `.env` editing, no restarts.
+
+<details><summary>nginx instead of Caddy</summary>
 
 ```nginx
 location /dashboard/ {
-    proxy_pass http://127.0.0.1:3200/dashboard/;
+    proxy_pass http://127.0.0.1:3200;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    client_max_body_size 4g;      # video uploads
+    proxy_set_header X-Forwarded-Host $host;
+    client_max_body_size 4g;
     proxy_request_buffering off;
 }
 ```
+</details>
 
-(A subdomain like `hq.euphoriax.net` with `BASE_PATH=` empty works too.)
+<details><summary>Run without Docker / try it locally</summary>
 
-Security: name + password login (scrypt hashes, signed httpOnly cookie, 8 attempts per 15 min), `noindex`,
-separate API keys for bots (`INGEST_KEY`) and the build PC (`MACHINE_KEY`). Uploaded videos are only reachable
-when logged in or through a signed link that expires after 72 hours (for the publisher). Always serve it over HTTPS.
+Needs Node 22.13+.
 
-## Plugging things in
+```bash
+npm install
+npm run seed:demo     # optional: fake data to look around
+npm run dev           # http://localhost:3200 → create logins
+```
 
-- **Platforms**: see the Setup page for the env var each connector needs.
-- **UEFN-Trends**: `UEFN_TRENDS_URL=http://<host>:3100`. It reads `/api/v1/trends/top`, `/trends/latest`, `/reports/latest` and `/status`.
-- **Bots / Discord tools** (header `x-api-key: $INGEST_KEY`):
-  - `POST /api/ingest/heartbeat` `{"name":"Support bot","detail":"..."}` once a minute
-  - `POST /api/ingest/signal` `{"kind":"request|question|feedback|message","author","channel","text","url"}` (or an array)
-  - `POST /api/ingest/sale` `{"product","amount_cents","platform"}` · `POST /api/ingest/metric` `{"platform","key","value"}`
-- **Patreon webhook**: `POST /api/webhooks/patreon` with `PATREON_WEBHOOK_SECRET`.
-- **Websites to watch**: copy `config/services.example.json` to `config/services.json`.
-- **Build PC**: [machine/README.md](machine/README.md).
+Production without Docker: `npm run build && BASE_PATH=/dashboard npm start`.
+</details>
+
+## Security
+
+Name + password login (scrypt, signed httpOnly cookie, 8 tries per 15 min), `noindex`, keys for bots and the build PC are
+generated automatically, the Bot Buddy key never reaches the browser, uploaded videos are only reachable when logged in
+or through a signed link that expires after 72 h (for the publisher). The container only listens on 127.0.0.1; HTTPS comes from Caddy.
+
+The build PC runs Claude Code unattended with `--dangerously-skip-permissions` (it can't click "allow"), so it can do
+anything on that PC. Only queue prompts you trust. See `machine/README.md` to narrow it.
+
+## For our own scripts
+
+With the key from Setup → "Keys for other tools" (header `x-api-key`):
+`POST /api/ingest/heartbeat {"name"}` · `POST /api/ingest/signal {"kind","text"}` · `POST /api/ingest/sale {"product","amount_cents"}` · `POST /api/ingest/metric {"platform","key","value"}`.
+
+How it works and why: [docs/PLAN.md](docs/PLAN.md).
 
 ## Code map
 
 ```
-src/index.ts          server, login, media
-src/routes/           dashboard API (login required) + machine/bot API (keys)
-src/connectors/       youtube, tiktok, instagram, twitter, patreon, discord, uefnTrends
-src/ai/               daily analysis (Claude + web search), caption writer
-src/outgoing/         publisher (ayrshare | webhook | manual)
-src/jobs.ts           build queue
-src/monitor.ts        online/offline tracking + Discord alerts
-src/scheduler.ts      hourly collect, 1-min checks, 30-s publish, daily AI
+src/index.ts          server, first-run accounts, login, media, worker download
+src/settings.ts       Setup page settings (stored in the db), auto-generated keys, auto-detect
+src/routes/           dashboard API (login) + bots / build PC / webhooks (keys)
+src/connectors/       buddy (Discord-Bot-Buddy), uefnTrends, youtube, tiktok, instagram, twitter, patreon, discord
+src/ai/               daily analysis (build PC or Claude API) + caption writer
+src/outgoing/         publisher (manual | ayrshare | webhook)
+src/jobs.ts           build queue (builds + daily analysis jobs)
+src/monitor.ts        online/offline tracking + Discord pings
+src/scheduler.ts      2-min Discord, hourly collect, 1-min checks, 30-s publish, daily AI
 public/               the page (plain HTML/CSS/JS)
-machine/worker.mjs    runs on the UEFN PC
+machine/worker.mjs    runs on the build PC (downloaded fresh by the start file)
 ```

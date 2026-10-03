@@ -1,4 +1,5 @@
 import { db, logActivity, now } from '../db.js';
+import { buddyConnector } from './buddy.js';
 import { discord } from './discord.js';
 import { instagram } from './instagram.js';
 import { patreon } from './patreon.js';
@@ -9,7 +10,7 @@ import { uefnTrends } from './uefnTrends.js';
 import { youtube } from './youtube.js';
 import { setServiceStatus } from '../monitor.js';
 
-export const connectors: Connector[] = [youtube, tiktok, instagram, twitter, patreon, discord, uefnTrends];
+export const connectors: Connector[] = [buddyConnector, uefnTrends, youtube, tiktok, instagram, twitter, patreon, discord];
 
 export async function collectAll() {
   await Promise.all(connectors.map(collectOne));

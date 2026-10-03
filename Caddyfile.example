@@ -1,0 +1,11 @@
+# Caddy (automatic HTTPS). Add this inside your existing euphoriax.net block.
+euphoriax.net {
+	handle /dashboard* {
+		request_body {
+			max_size 4GB
+		}
+		reverse_proxy 127.0.0.1:3200
+	}
+
+	# ...the rest of the website
+}

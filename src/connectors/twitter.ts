@@ -7,7 +7,7 @@ const API = 'https://api.x.com/2';
 export const twitter: Connector = {
   name: 'X / Twitter',
   platform: 'twitter',
-  setup: 'TWITTER_BEARER_TOKEN + TWITTER_USER_ID (reading tweets needs a paid X API tier)',
+  setup: 'X bearer token + user ID on the Setup page (paid X API plan)',
   configured: () => !!(config.twitter.bearer && config.twitter.userId),
   async collect() {
     const headers = { authorization: `Bearer ${config.twitter.bearer}` };

@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS sales (
 CREATE TABLE IF NOT EXISTS signals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source TEXT NOT NULL, kind TEXT NOT NULL, author TEXT, channel TEXT, text TEXT NOT NULL,
-  url TEXT, ts INTEGER NOT NULL
+  url TEXT, ts INTEGER NOT NULL, ext_id TEXT
 );
 CREATE INDEX IF NOT EXISTS signals_ts ON signals (ts);
 
@@ -98,13 +98,24 @@ CREATE TABLE IF NOT EXISTS jobs (
   position REAL NOT NULL,
   status TEXT NOT NULL DEFAULT 'queued', -- queued | running | done | failed | cancelled
   machine TEXT, started_at INTEGER, finished_at INTEGER,
-  summary TEXT, log TEXT NOT NULL DEFAULT '', idea_id INTEGER, attempts INTEGER NOT NULL DEFAULT 0
+  summary TEXT, log TEXT NOT NULL DEFAULT '', idea_id INTEGER, attempts INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'build', report_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, who TEXT, text TEXT NOT NULL
 );
 `);
+
+// Columns added after v1: add them to older databases.
+for (const sql of [
+  'ALTER TABLE signals ADD COLUMN ext_id TEXT',
+  "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'build'",
+  'ALTER TABLE jobs ADD COLUMN report_id INTEGER',
+]) {
+  try { db.exec(sql); } catch { /* already there */ }
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS signals_ext ON signals (ext_id)');
 
 export const now = () => Date.now();
 

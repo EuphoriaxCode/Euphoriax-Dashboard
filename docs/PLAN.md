@@ -13,6 +13,13 @@ One private page that answers three questions every morning:
                                                                                                           └─ Discord ping when done
 ```
 
+## Connected to what we already have
+- **Discord-Bot-Buddy** → bot status, unanswered questions (answer from the dashboard; the bot posts it and can remember it),
+  tickets, knowledge proposals, and the real questions people ask (fed to the daily AI).
+- **UEFN-Trends** → trends, breakouts, memes, the trend report and the health of each source. Buttons to track something or ask for a fresh report.
+- **UEFN-MCP-Guidelines** → the preamble of every build prompt.
+- **Claude subscription** → the build PC runs builds and the daily analysis, so no API key is needed.
+
 ## Incoming zone
 - **Connectors** pull every hour: per-video views/likes/comments (YouTube, TikTok, Instagram, X), followers,
   Patreon tiers + members + monthly revenue, Discord member counts, UEFN-Trends `/trends/top`, `/latest`, `/reports/latest`.

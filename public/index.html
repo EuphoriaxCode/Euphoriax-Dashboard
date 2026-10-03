@@ -17,6 +17,16 @@
       <button class="primary" type="submit">Log in</button>
       <p class="error" id="login-error"></p>
     </form>
+    <form id="first-form" class="login" hidden>
+      <h1>EUPHORIAX</h1>
+      <p>Welcome! Create the logins for both of you. You only do this once.</p>
+      <label>Your name <input name="name" autocomplete="username" required></label>
+      <label>Your password (8+ characters) <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Co-founder's name <input name="name2" autocomplete="off"></label>
+      <label>Co-founder's password <input name="password2" type="password" autocomplete="new-password" minlength="8"></label>
+      <button class="primary" type="submit">Create accounts</button>
+      <p class="error" id="first-error"></p>
+    </form>
   </div>
 
   <div id="app" hidden>

@@ -7,7 +7,7 @@ const API = 'https://www.googleapis.com/youtube/v3';
 export const youtube: Connector = {
   name: 'YouTube',
   platform: 'youtube',
-  setup: 'YOUTUBE_API_KEY + YOUTUBE_CHANNEL_ID (Google Cloud console -> YouTube Data API v3)',
+  setup: 'YouTube API key + channel ID on the Setup page',
   configured: () => !!(config.youtube.apiKey && config.youtube.channelId),
   async collect() {
     const { apiKey, channelId } = config.youtube;

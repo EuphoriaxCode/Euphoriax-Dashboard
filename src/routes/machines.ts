@@ -72,6 +72,36 @@ export async function machineRoutes(app: FastifyInstance) {
     });
   });
 
+  // ----- Discord-Bot-Buddy webhooks: instant refresh + pings (HMAC-SHA256 over "<timestamp>.<raw body>") -----
+  app.register(async (hooks) => {
+    hooks.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
+    hooks.post('/api/webhooks/buddy', async (req, reply) => {
+      const raw = req.body as Buffer;
+      const secret = config.buddy.webhookSecret;
+      const ts = String(req.headers['x-webhook-timestamp'] ?? '');
+      const given = String(req.headers['x-webhook-signature'] ?? '');
+      const { createHmac } = await import('node:crypto');
+      const expected = 'sha256=' + createHmac('sha256', secret).update(`${ts}.${raw.toString()}`).digest('hex');
+      if (!secret || Math.abs(Date.now() / 1000 - Number(ts)) > 300 || given.length !== expected.length
+        || !timingSafeEqual(Buffer.from(given), Buffer.from(expected))) {
+        return reply.code(401).send({ error: 'bad signature' });
+      }
+      const evt = JSON.parse(raw.toString());
+      const { refreshBuddy } = await import('../connectors/buddy.js');
+      const { notify } = await import('../notify.js');
+      if (evt.event === 'question.unresolved') {
+        await notify(`❓ **A Discord question needs you**: "${String(evt.data?.question ?? '').slice(0, 300)}"\nAnswer it on ${config.publicUrl}/#overview`);
+      } else if (evt.event === 'ticket.created') {
+        await notify(`🎫 New Discord ticket${evt.data?.category ? ` (${evt.data.category})` : ''}`);
+      }
+      if (/^(question|ticket|knowledge|discord|system)\./.test(evt.event)) {
+        refreshBuddy().catch((err) => console.error('buddy refresh', err));
+        logActivity(`Discord: ${evt.event.replace('.', ' ').replace(/_/g, ' ')}`, 'bot buddy');
+      }
+      return { ok: true };
+    });
+  });
+
   // ----- UEFN build machine (MACHINE_KEY) -----
   app.register(async (m) => {
     m.addHook('preHandler', requireKey('machineKey'));
@@ -85,12 +115,12 @@ export async function machineRoutes(app: FastifyInstance) {
       const { name } = req.body as { name: string };
       heartbeat(name, 'online', 'claiming', 'machine');
       const job = claimNext(name);
-      return job ? { id: job.id, title: job.title, prompt: job.prompt } : reply.code(204).send();
+      return job ? { id: job.id, title: job.title, prompt: job.prompt, kind: job.kind } : reply.code(204).send();
     });
     m.post('/api/machine/jobs/:id/log', async (req) => appendLog(idParam(req), (req.body as { chunk: string }).chunk ?? ''));
     m.post('/api/machine/jobs/:id/finish', async (req) => {
-      const b = req.body as { status: 'done' | 'failed' | 'requeue'; summary?: string };
-      finishJob(idParam(req), b.status, b.summary ?? '');
+      const b = req.body as { status: 'done' | 'failed' | 'requeue'; summary?: string; output?: string };
+      await finishJob(idParam(req), b.status, b.summary ?? '', b.output ?? '');
       return { ok: true };
     });
   });

@@ -1,0 +1,24 @@
+# Euphoriax HQ on the same VPS as Discord-Bot-Buddy (port 3000) and UEFN-Trends (port 3100).
+# Host networking lets the dashboard reach them on 127.0.0.1 and find them automatically.
+#   docker compose up -d     → then open https://euphoriax.net/dashboard and create your logins
+services:
+  dashboard:
+    build: .
+    image: euphoriax-dashboard:latest
+    container_name: euphoriax-dashboard
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    environment:
+      NODE_ENV: production
+      PORT: "3200"
+      HOST: 127.0.0.1          # only reachable through Caddy/nginx
+      BASE_PATH: /dashboard    # "" if you use a subdomain like hq.euphoriax.net
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      - ./config:/app/config
+    mem_limit: 384m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

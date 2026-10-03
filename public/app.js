@@ -75,10 +75,25 @@ document.addEventListener('mousemove', (e) => {
 const empty = (text) => `<div class="empty">${text}</div>`;
 
 // ---------- auth ----------
-function showLogin() {
+async function showLogin() {
   $('#app').hidden = true;
   $('#login').hidden = false;
+  const state = await fetch('api/setup-state').then((r) => r.json()).catch(() => ({}));
+  $('#login-form').hidden = !!state.needsAccount;
+  $('#first-form').hidden = !state.needsAccount;
 }
+$('#first-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  try {
+    await api('/api/first-account', { json: f });
+    $('#login').hidden = true;
+    location.hash = 'setup';
+    start();
+  } catch (err) {
+    $('#first-error').textContent = err.message;
+  }
+});
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
@@ -156,6 +171,7 @@ async function overview() {
   const maxContent = Math.max(1, ...d.topContent.map((c) => c.gained));
 
   view.innerHTML = `
+    ${inboxHtml(d)}
     ${down.length ? `<div class="card strong" style="margin-bottom:16px">
       <div class="spread"><strong>✕ ${down.length} service${down.length > 1 ? 's' : ''} offline:</strong>
       <span>${down.map((s) => esc(s.label ?? s.name)).join(' · ')}</span><a href="#status">See status →</a></div></div>` : ''}
@@ -238,7 +254,85 @@ async function overview() {
       </div>
     </div>`;
   bindIdeaButtons();
-  timer = setInterval(() => { if (!document.hidden && location.hash.replace('#', '') in { '': 1, overview: 1 }) overview().catch(() => {}); }, 60_000);
+  bindInbox(overview);
+  // Don't refresh while someone is typing an answer.
+  timer = setInterval(() => {
+    const typing = document.activeElement?.tagName === 'TEXTAREA' && document.activeElement.value;
+    if (!document.hidden && !typing && location.hash.replace('#', '') in { '': 1, overview: 1 }) overview().catch(() => {});
+  }, 60_000);
+}
+
+// ---------- "Needs you" inbox: everything that waits on a human, in one place ----------
+function inboxHtml(d) {
+  const i = d.inbox;
+  const items = [];
+  for (const q of i.questions) items.push(questionItem(q));
+  for (const p of i.proposals) items.push(`<div class="inbox-item" data-proposal="${esc(p.id)}">
+    <div class="small muted">The bots want to learn this answer</div>
+    <div><strong>${esc(p.question)}</strong></div><div class="quote">${esc(p.answer)}</div>
+    <div class="row"><button class="primary" data-act="approve">Yes, remember it</button><button data-act="reject">No</button></div></div>`);
+  for (const j of i.failedBuilds) items.push(`<div class="inbox-item spread" data-job="${j.id}"><div><span class="tag dark">build failed</span> <a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a>
+    <div class="small muted">${esc((j.summary ?? '').slice(0, 160))}</div></div><button data-act="retry">Run again</button></div>`);
+  for (const p of i.postsToHandle) items.push(`<div class="inbox-item spread" data-post="${p.id}"><div><span class="tag ${p.status === 'manual' ? '' : 'dark'}">${p.status === 'manual' ? 'post this' : 'post ' + esc(p.status)}</span>
+    <strong>${esc(p.title)}</strong> <span class="small muted">${p.platforms.split(',').map(pname).join(', ')}</span></div>
+    <div class="row">${p.status === 'manual' && p.id ? `<a class="btn" href="media/${p.id}" target="_blank">Video</a>` : ''}<button data-act="published">Done, it's posted</button></div></div>`);
+  const extra = i.questionsTotal > i.questions.length ? `<a href="#incoming/discord">+${i.questionsTotal - i.questions.length} more questions</a>` : '';
+  const tickets = i.tickets ? `<a href="#incoming/discord">${i.tickets} open ticket${i.tickets > 1 ? 's' : ''}</a>` : '';
+  return `<div class="inbox">
+    <div class="spread"><h2>Needs you</h2><span class="small">${[extra, tickets].filter(Boolean).join(' · ')}</span></div>
+    ${items.length ? items.join('') : `<div class="ok-line" style="margin-top:8px">✓ Nothing needs you right now.</div>`}
+    ${setupChecklist(d)}
+  </div>`;
+}
+
+function questionItem(q) {
+  return `<div class="inbox-item" data-question="${esc(q.id)}">
+    <div class="spread small muted"><span><span class="tag dark">discord question</span>${esc(q.username)} · ${ago(new Date(q.createdAt).getTime())} · bot wasn't sure (${esc(String(q.reason ?? '').toLowerCase().replace(/_/g, ' '))})</span>
+      ${q.link ? `<a href="${esc(q.link)}" target="_blank" rel="noopener">Open in Discord ↗</a>` : ''}</div>
+    ${(q.context ?? []).filter((c) => c.text && c.text !== q.question).slice(-2).map((c) => `<div class="ctx">${esc(c.who)}: ${esc(c.text)}</div>`).join('')}
+    <div class="quote"><strong>${esc(q.question)}</strong></div>
+    <textarea rows="2" placeholder="Type the answer. The bot posts it in Discord for you."></textarea>
+    <div class="row" style="margin-top:6px"><button class="primary" data-act="answer">Send answer</button>
+      <label class="check"><input type="checkbox" data-remember checked> Bots remember this answer</label>
+      <button data-act="ignore">Ignore</button></div></div>`;
+}
+
+function bindInbox(reload) {
+  const act = async (fn, okMsg) => { try { await fn(); if (okMsg) toast(okMsg); reload(); } catch (err) { toast(err.message); } };
+  view.querySelectorAll('[data-question] [data-act]').forEach((btn) => btn.onclick = () => {
+    const box = btn.closest('[data-question]');
+    const id = box.dataset.question;
+    if (btn.dataset.act === 'ignore') return act(() => api(`/api/discord/unresolved/${id}/ignore`, { json: {} }), 'Ignored');
+    const answer = box.querySelector('textarea').value.trim();
+    if (!answer) return toast('Type an answer first');
+    btn.disabled = true;
+    act(() => api(`/api/discord/unresolved/${id}/answer`, { json: { answer, remember: box.querySelector('[data-remember]').checked } }), 'Answer posted in Discord');
+  });
+  view.querySelectorAll('[data-proposal] [data-act]').forEach((btn) => btn.onclick = () =>
+    act(() => api(`/api/discord/proposals/${btn.closest('[data-proposal]').dataset.proposal}/${btn.dataset.act}`, { json: {} })));
+  view.querySelectorAll('.inbox [data-job] [data-act]').forEach((btn) => btn.onclick = () =>
+    act(() => api(`/api/jobs/${btn.closest('[data-job]').dataset.job}/retry`, { json: {} }), 'Back in the queue'));
+  view.querySelectorAll('.inbox [data-post] [data-act]').forEach((btn) => btn.onclick = () =>
+    act(() => api(`/api/posts/${btn.closest('[data-post]').dataset.post}/status`, { json: { status: btn.dataset.act } })));
+  view.querySelectorAll('[data-ticket] [data-act]').forEach((btn) => btn.onclick = () => {
+    if (confirm('Close this ticket in Discord?')) act(() => api(`/api/discord/tickets/${btn.closest('[data-ticket]').dataset.ticket}/close`, { json: {} }), 'Ticket closed');
+  });
+}
+
+/** Shown until the main things are connected. */
+function setupChecklist(d) {
+  const has = (prefix) => d.services.some((s) => s.name.startsWith(prefix) && s.status !== 'not_configured');
+  const steps = [
+    ['Discord bots (Bot Buddy)', d.buddyConnected],
+    ['UEFN Trends', has('connector:uefn')],
+    ['Build PC', d.services.some((s) => s.kind === 'machine')],
+    ['A social platform', ['youtube', 'tiktok', 'instagram', 'twitter'].some((p) => has(`connector:${p}`))],
+    ['Patreon', has('connector:patreon')],
+  ];
+  const done = steps.filter(([, ok]) => ok).length;
+  if (done === steps.length) return '';
+  return `<div class="inbox-item"><div class="spread"><strong>Finish setup · ${done}/${steps.length} connected</strong><a class="btn" href="#setup">Open Setup →</a></div>
+    <div class="row small" style="margin-top:6px">${steps.map(([n, ok]) => `<span>${ok ? '✓' : '○'} ${n}</span>`).join(' ')}</div></div>`;
 }
 
 const kpi = (label, value, delta) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta ?? ''}</div></div>`;
@@ -330,12 +424,13 @@ function bindIdeaButtons() {
 // INCOMING
 // ======================================================================
 async function incoming(sub = 'content') {
-  const tabs = [['content', 'Content & views'], ['sales', 'Sales'], ['community', 'Community'], ['trends', 'UEFN trends'], ['growth', 'Growth']];
+  const tabs = [['content', 'Content & views'], ['sales', 'Sales'], ['discord', 'Discord'], ['community', 'What people say'], ['trends', 'UEFN trends'], ['growth', 'Growth']];
   view.innerHTML = `<div class="tabs">${tabs.map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" onclick="location.hash='incoming/${k}'">${l}</button>`).join('')}</div><div id="sub"></div>`;
   const el = $('#sub');
   if (sub === 'content') return contentPage(el);
   if (sub === 'sales') return salesPage(el);
   if (sub === 'community') return communityPage(el);
+  if (sub === 'discord') return discordPage(el);
   if (sub === 'trends') return trendsPage(el);
   if (sub === 'growth') return growthPage(el);
 }
@@ -406,21 +501,68 @@ async function communityPage(el, kind = '') {
   $('#kind').onchange = (e) => communityPage(el, e.target.value);
 }
 
+async function discordPage(el) {
+  const d = await api('/api/discord');
+  if (!d) {
+    el.innerHTML = `<div class="card">Discord-Bot-Buddy is not connected yet. <a href="#setup">Connect it on the Setup page →</a></div>`;
+    return;
+  }
+  const st = d.status ?? {};
+  const bots = Object.entries(st.bots ?? {});
+  el.innerHTML = `
+    <div class="spread" style="margin-bottom:12px"><span class="small muted">From Bot Buddy · updated ${ago(d.ts)}</span><button id="buddy-refresh">Refresh</button></div>
+    <div class="kpis">
+      ${kpi('Questions waiting', String(d.unresolved.length), 'the bots need your answer')}
+      ${kpi('Open tickets', String(d.tickets.length), '')}
+      ${kpi('Spam removed today', fmt(st.moderationActionsToday), '')}
+      ${kpi('Bot AI today', '$' + (st.ai?.estimatedCostToday ?? 0).toFixed(2), `${fmt(st.ai?.callsToday)} calls`)}
+      ${bots.map(([k, b]) => kpi(d.personas?.find((p) => p.id === (k === 'founderA' ? 'FOUNDER_A' : 'FOUNDER_B'))?.displayName ?? k, b.connected ? '● online' : '✕ offline', b.connected ? `${b.latencyMs} ms` : 'disconnected')).join('')}
+    </div>
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:8px">Questions the bots couldn't answer</h2>
+        ${d.unresolved.length ? d.unresolved.map(questionItem).join('') : empty('✓ None. The bots handled everything.')}</div>
+      <div class="stack">
+        <div class="card"><h2 style="margin-bottom:8px">Knowledge waiting for approval</h2>
+          ${d.proposals.length ? d.proposals.map((p) => `<div class="inbox-item" data-proposal="${esc(p.id)}"><div><strong>${esc(p.question)}</strong></div><div class="quote">${esc(p.answer)}</div>
+            <div class="row"><button class="primary" data-act="approve">Approve</button><button data-act="reject">Reject</button></div></div>`).join('') : empty('Nothing to approve.')}</div>
+        <div class="card"><h2 style="margin-bottom:8px">Open tickets</h2>
+          ${d.tickets.length ? `<ul class="list">${d.tickets.map((t) => `<li class="spread" data-ticket="${esc(t.id)}"><div><strong>#${t.ticketNumber} ${esc(t.category)}</strong> <span class="tag">${esc(String(t.status).toLowerCase().replace(/_/g, ' '))}</span>
+            <div class="small muted">${esc(t.summary ?? '')} · opened ${ago(new Date(t.createdAt).getTime())}</div></div><button data-act="close">Close</button></li>`).join('')}</ul>` : empty('No open tickets.')}</div>
+      </div>
+    </div>`;
+  $('#buddy-refresh').onclick = async () => { try { await api('/api/discord/refresh', { json: {} }); discordPage(el); } catch (err) { toast(err.message); } };
+  bindInbox(() => discordPage(el));
+}
+
 async function trendsPage(el) {
   const d = await api('/api/trends');
   const top = d.top?.data;
   const report = d.report?.data;
   el.innerHTML = `
-    <p class="small muted">From the UEFN Trends engine${d.top ? ` · updated ${ago(d.top.ts)}` : ''}.</p>
+    <div class="spread" style="margin-bottom:12px"><span class="small muted">From the UEFN Trends engine${d.top ? ` · updated ${ago(d.top.ts)}` : ' · not connected yet (<a href="#setup">Setup</a>)'}.</span>
+      <form class="row" id="watch-form">
+        <select name="kind" style="width:auto">${['topic', 'meme', 'fortnite', 'roblox', 'steam', 'reddit'].map((k) => `<option>${k}</option>`).join('')}</select>
+        <input name="value" placeholder="Track something, e.g. pets or 1234-5678-9012" style="width:260px" required>
+        <button>Track</button>
+        <button type="button" id="run-trends">Fresh trend report</button>
+      </form></div>
     <div class="grid g2">
       <div class="card"><h2 style="margin-bottom:8px">Top trends</h2>${trendTable(top?.topTrends)}</div>
       <div class="card"><h2 style="margin-bottom:8px">Breakouts</h2>
-        ${(top?.breakouts ?? []).length ? `<ul class="list">${top.breakouts.map((b) => `<li class="spread"><span><strong>${esc(b.name ?? b.title ?? b.slug)}</strong> <span class="small muted">${esc(b.platform ?? '')}</span></span><span class="num">${b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No breakouts.')}
+        ${(top?.breakouts ?? []).length ? `<ul class="list">${top.breakouts.map((b) => `<li class="spread"><span><strong>${esc(b.name ?? b.title ?? b.slug)}</strong> <span class="small muted">${esc(b.platform ?? b.source ?? '')}</span></span><span class="num">${b.score ?? b.breakoutScore ?? ''}</span></li>`).join('')}</ul>` : empty('No breakouts.')}
         <h2 style="margin:16px 0 8px">Memes</h2>
-        ${(top?.memes ?? []).length ? `<ul class="list">${top.memes.map((b) => `<li class="spread"><span>${esc(b.name ?? b.title ?? b.slug)}</span><span class="num">${b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No memes.')}
+        ${(top?.memes ?? []).length ? `<ul class="list">${top.memes.map((b) => `<li class="spread"><span>${esc(b.name ?? b.title ?? b.slug)} <span class="small muted">${esc(b.source ?? '')}</span></span><span class="num">${b.momentum ?? b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No memes.')}
       </div>
     </div>
-    ${report ? `<div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest trend report</h2><div class="log mono">${esc(typeof report === 'string' ? report : report.text ?? report.content ?? JSON.stringify(report, null, 2))}</div></div>` : ''}`;
+    ${report ? `<div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest trend report${report.generatedAt ? ` · ${when(new Date(report.generatedAt).getTime())}` : ''}</h2><div class="log">${esc(typeof report === 'string' ? report : report.discordText ?? report.text ?? JSON.stringify(report, null, 2))}</div></div>` : ''}`;
+  $('#watch-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    try { await api('/api/trends/watch', { json: f }); toast(`Now tracking "${f.value}"`); e.target.reset(); } catch (err) { toast(err.message); }
+  };
+  $('#run-trends').onclick = async () => {
+    try { await api('/api/trends/run-report', { json: {} }); toast('UEFN Trends is making a new report. Refresh in a few minutes.'); } catch (err) { toast(err.message); }
+  };
 }
 
 async function growthPage(el) {
@@ -466,8 +608,8 @@ async function ai(sub) {
   view.innerHTML = `
     <div class="spread" style="margin-bottom:16px">
       <div><h1 style="font-size:20px">Daily AI analysis</h1>
-      <div class="small muted">Claude reads all incoming data + searches the web for what people want, every morning.</div></div>
-      <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? 'Running… (takes a few minutes)' : 'Run analysis now'}</button>
+      <div class="small muted">Every morning Claude reads all incoming data and searches the web for what people want.</div></div>
+      <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? (running.status === 'queued' ? 'Waiting for the build PC…' : 'Running… (takes a few minutes)') : 'Run analysis now'}</button>
     </div>
     <div class="grid g3">
       <div class="span2 stack">
@@ -486,7 +628,11 @@ async function ai(sub) {
     </div>`;
   bindIdeaButtons();
   $('#run').onclick = async () => {
-    try { await api('/api/reports/run', { json: {} }); toast('Analysis started - you get a Discord ping when it is ready'); setTimeout(route, 1000); }
+    try {
+      const r = await api('/api/reports/run', { json: {} });
+      toast(r.mode === 'machine' ? 'Sent to the build PC (first in the queue). You get a Discord ping when it is ready.' : 'Analysis started. You get a Discord ping when it is ready.');
+      setTimeout(route, 1000);
+    }
     catch (err) { toast(err.message); }
   };
   if (running) timer = setInterval(() => ai(sub).catch(() => {}), 15_000);
@@ -512,7 +658,8 @@ async function outgoing() {
           ${PLATFORMS.map((p) => `<label class="check"><input type="checkbox" name="platforms" value="${p}" checked> ${pname(p)}</label>`).join('')}</div>
         <div class="spread"><label style="flex:1">Caption (used everywhere unless overridden)
           <textarea name="caption" rows="3">${esc(prefill?.caption ?? '')}</textarea></label></div>
-        <div class="row"><button type="button" id="ai-captions" ${settings.ai.configured ? '' : 'disabled title="Set ANTHROPIC_API_KEY"'}>✎ Write captions per platform with AI</button></div>
+        <div class="row"><button type="button" id="ai-captions" ${settings.ai.configured ? '' : 'disabled'}>✎ Write captions per platform with AI</button>
+          ${settings.ai.configured ? '' : '<span class="small muted">Needs a Claude API key (Setup → AI)</span>'}</div>
         <div id="per-platform" class="stack"></div>
         <label>Hashtags (added to the shared caption) <input name="hashtags" placeholder="#uefn #fortnite #fortnitecreative"></label>
         <div class="row">
@@ -623,7 +770,9 @@ async function build(sub) {
           <div class="spread"><label class="check"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit">Add to queue</button></div>
         </form>
         <div class="card"><h2 style="margin-bottom:8px">Machines</h2>
-          ${machines.map((s) => `<div class="spread"><span><strong>${esc(s.label)}</strong><div class="small muted">${esc(s.detail ?? '')} · ${ago(s.last_seen)}</div></span>${statusBadge(s.status)}</div>`).join('') || empty('No machine connected. Run machine/worker.mjs on the UEFN PC (see Setup).')}
+          ${machines.map((s) => `<div class="spread"><span><strong>${esc(s.label)}</strong><div class="small muted">${esc(s.detail ?? '')} · ${ago(s.last_seen)}</div></span>${statusBadge(s.status)}</div>`).join('') || empty('No build PC connected yet.')}
+          <div style="margin-top:12px"><a class="btn${machines.length ? '' : ' primary'}" href="api/machine-script" style="${machines.length ? '' : 'background:var(--invert-bg);color:var(--invert-fg)'}">⬇ Download start file for the build PC</a>
+          <div class="small muted" style="margin-top:6px">Put it in your UEFN project folder on the build PC and double-click it. It installs what's missing, then works through this queue. Log in to Claude once by running <span class="mono">claude</span> in a terminal.</div></div>
         </div>
       </div>
 
@@ -676,7 +825,7 @@ async function build(sub) {
 function jobRow(j, isRunning, i = 0, n = 0) {
   return `<li data-job="${j.id}" class="spread">
     <div style="min-width:0;flex:1"><div>${isRunning ? '<span class="tag dark">building</span>' : `<span class="muted">${i + 1}.</span>`} <a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a></div>
-      <div class="small muted">${isRunning ? `on ${esc(j.machine)} · ${ago(j.started_at)}` : `added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}${j.summary ? ` · ${esc(j.summary)}` : ''}`}</div></div>
+      <div class="small muted">${j.kind === 'analysis' ? '<span class="tag">daily AI</span>' : ''}${isRunning ? `on ${esc(j.machine)} · ${ago(j.started_at)}` : `added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}${j.summary ? ` · ${esc(j.summary)}` : ''}`}</div></div>
     <div class="row">${isRunning ? '' : `<button data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button data-act="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>`}
       <button data-act="cancel">Cancel</button></div></li>`;
 }
@@ -686,7 +835,7 @@ function jobRow(j, isRunning, i = 0, n = 0) {
 // ======================================================================
 async function status() {
   const svcs = await api('/api/services');
-  const groups = { machine: 'Build machines', heartbeat: 'Bots (heartbeats)', http: 'Websites & APIs', connector: 'Data connectors' };
+  const groups = { bot: 'Discord bots', machine: 'Build PC', trends: 'UEFN Trends sources', heartbeat: 'Other bots (heartbeats)', http: 'Websites & APIs', connector: 'Connections' };
   view.innerHTML = Object.entries(groups).map(([kind, title]) => {
     const rows = svcs.filter((s) => s.kind === kind);
     return `<div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:8px">${title}</h2>
@@ -701,32 +850,94 @@ async function status() {
 // ======================================================================
 // SETUP
 // ======================================================================
+const GROUP_CONNECTOR = { 'Discord bots (Bot Buddy)': 'buddy', 'UEFN Trends': 'uefn', Patreon: 'patreon' };
+const GROUP_INTRO = {
+  'Discord bots (Bot Buddy)': 'Shows bot status, lets you answer the questions the bots could not, close tickets and approve what the bots learn.',
+  'UEFN Trends': 'Shows top trends, breakouts and the trend report, and feeds the daily AI.',
+  AI: 'The daily analysis that turns everything into ideas.',
+  'Build PC': 'The PC that builds UEFN systems from the Build queue.',
+  Socials: 'Views per video. Fill in only the platforms you want. Each one starts working as soon as you save.',
+  Patreon: 'Tiers, members, monthly revenue and live sales.',
+  Posting: 'Where videos go when you schedule them in Outgoing.',
+};
+
 async function setup() {
   const s = await api('/api/settings');
-  const yes = (b) => (b ? statusBadge('online').replace('online', 'ready') : statusBadge('not_configured'));
+  const groups = [...new Set(s.fields.map((f) => f.group))];
+  const conn = Object.fromEntries(s.connectors.map((c) => [c.platform, c]));
+  const field = (f) => `<div class="field"><label>${esc(f.label)}${f.secret && f.isSet ? ' <strong>· saved</strong>' : ''}
+    ${f.options ? `<select name="${f.key}">${f.options.map((o) => `<option ${(f.value || f.options[0]) === o ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+      : `<input name="${f.key}" ${f.secret ? 'type="password" autocomplete="new-password"' : 'autocomplete="off"'} value="${esc(f.value)}"
+         placeholder="${esc(f.secret && f.isSet ? '•••••••• saved - type to replace' : f.placeholder ?? '')}">`}</label>
+    ${f.help ? `<div class="help">${esc(f.help)}</div>` : ''}</div>`;
+  const copy = (label, value) => `<div class="field"><label>${label}</label><div class="copy"><input readonly value="${esc(value)}"><button type="button" data-copy="${esc(value)}">Copy</button></div></div>`;
+
   view.innerHTML = `
-    <div class="grid g2">
-      <div class="card"><h2 style="margin-bottom:8px">Incoming connectors</h2>
-        <table>${s.connectors.map((c) => `<tr><td><strong>${esc(c.name)}</strong><div class="small muted">${esc(c.setup)}</div></td><td>${yes(c.configured)}</td></tr>`).join('')}</table></div>
-      <div class="card"><h2 style="margin-bottom:8px">Everything else</h2>
-        <table>
-          <tr><td><strong>Daily AI analysis</strong><div class="small muted">ANTHROPIC_API_KEY · model ${esc(s.ai.model)} · runs daily after ${s.ai.dailyHour}:00</div></td><td>${yes(s.ai.configured)}</td></tr>
-          <tr><td><strong>Publisher</strong><div class="small muted">PUBLISHER=ayrshare (AYRSHARE_API_KEY) or webhook (PUBLISH_WEBHOOK_URL) or manual · now: ${esc(s.publisher.mode)}</div></td><td>${yes(s.publisher.ready)}</td></tr>
-          <tr><td><strong>Discord notifications</strong><div class="small muted">NOTIFY_DISCORD_WEBHOOK - build done, service down, report ready</div></td><td>${yes(s.notify)}</td></tr>
-          <tr><td><strong>Bot / Discord-tool API key</strong><div class="small muted">INGEST_KEY - for heartbeats and Discord messages</div></td><td>${yes(s.ingestKey)}</td></tr>
-          <tr><td><strong>Build machine key</strong><div class="small muted">MACHINE_KEY - used by machine/worker.mjs</div></td><td>${yes(s.machineKey)}</td></tr>
-          <tr><td><strong>Website checks</strong><div class="small muted">config/services.json · ${s.httpServices.length} configured</div></td><td>${yes(s.httpServices.length > 0)}</td></tr>
-        </table></div>
-      <div class="card span2"><h2 style="margin-bottom:8px">Hooking up bots & tools</h2>
-        <p class="small">Every bot sends a heartbeat each minute so it shows online here:</p>
-        <div class="log mono">curl -X POST ${esc(s.publicUrl)}/api/ingest/heartbeat -H "x-api-key: $INGEST_KEY" -H "content-type: application/json" \\
-  -d '{"name":"Support bot","detail":"answered 12 questions today"}'</div>
-        <p class="small">Discord tools forward what people ask for (kind = request | question | feedback | message):</p>
-        <div class="log mono">curl -X POST ${esc(s.publicUrl)}/api/ingest/signal -H "x-api-key: $INGEST_KEY" -H "content-type: application/json" \\
-  -d '[{"kind":"request","author":"user123","channel":"requests","text":"please make a pet system"}]'</div>
-        <p class="small">Patreon sales: in the Patreon portal add a webhook to <span class="mono">${esc(s.publicUrl)}/api/webhooks/patreon</span> and put its secret in PATREON_WEBHOOK_SECRET.
-        Other sales: POST <span class="mono">/api/ingest/sale</span> with <span class="mono">{"product":"Pet System","amount_cents":1500}</span>.</p>
-        <p class="small">Build machine: see <span class="mono">machine/README.md</span>.</p>
+    <div class="spread" style="margin-bottom:16px"><div><h1 style="font-size:20px">Setup</h1>
+      <div class="small muted">Fill in what you have and press Save. Anything you skip just stays off. Nothing here needs a restart.</div></div>
+      <button class="primary" id="save-top">Save</button></div>
+    <form id="settings-form" class="grid g2">
+      ${groups.map((g) => `<div class="card">
+        <div class="spread"><h2>${esc(g)}</h2>${GROUP_CONNECTOR[g] ? `<span class="row"><span id="test-${GROUP_CONNECTOR[g]}">${conn[GROUP_CONNECTOR[g]]?.configured ? statusBadge('online').replace('online', 'filled in') : statusBadge('not_configured')}</span>
+          <button type="button" data-test="${GROUP_CONNECTOR[g]}">Test</button></span>` : ''}</div>
+        <p class="small muted" style="margin-top:4px">${esc(GROUP_INTRO[g] ?? '')}</p>
+        ${s.fields.filter((f) => f.group === g).map(field).join('')}
+        ${g === 'Discord bots (Bot Buddy)' ? copy('Instant updates: put this in Bot Buddy as DASHBOARD_WEBHOOK_URL', s.urls.buddyWebhook) : ''}
+        ${g === 'Patreon' ? copy('Patreon webhook address (triggers: members create / update / delete)', s.urls.patreonWebhook) : ''}
+        ${g === 'Build PC' ? `<a class="btn" href="api/machine-script">⬇ Download start file for the build PC</a>` : ''}
+        ${g === 'Socials' ? `<div class="row">${['youtube', 'tiktok', 'instagram', 'twitter', 'discord'].map((p) => `<button type="button" data-test="${p}">Test ${pname(p)}</button><span id="test-${p}"></span>`).join(' ')}</div>` : ''}
+      </div>`).join('')}
+    </form>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card"><h2 style="margin-bottom:8px">Logins</h2>
+        <ul class="list">${s.users.map((u) => `<li class="spread"><strong>${esc(u)}</strong><button data-deluser="${esc(u)}">Remove</button></li>`).join('')}</ul>
+        <form id="user-form" class="row" style="margin-top:8px"><input name="name" placeholder="Name" style="width:140px" required>
+          <input name="password" type="password" placeholder="New password (8+)" style="width:180px" minlength="8" required><button>Add / change password</button></form>
+      </div>
+      <div class="card"><h2 style="margin-bottom:8px">Keys for other tools</h2>
+        <p class="small muted">Made automatically. Only needed if you connect your own scripts or bots.</p>
+        ${copy('Bot / script key (header x-api-key)', s.keys.ingest)}
+        ${copy('Build PC key (already in the downloaded start file)', s.keys.machine)}
+        <details><summary>Examples for your own bots</summary>
+          <div class="log mono" style="margin-top:6px">curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/heartbeat -H "x-api-key: KEY" -H "content-type: application/json" -d '{"name":"My bot"}'
+
+curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/signal -H "x-api-key: KEY" -H "content-type: application/json" -d '{"kind":"request","text":"please make a pet system"}'
+
+curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/sale -H "x-api-key: KEY" -H "content-type: application/json" -d '{"product":"Pet System","amount_cents":1500}'</div></details>
       </div>
     </div>`;
+
+  const save = async () => {
+    const values = {};
+    new FormData($('#settings-form')).forEach((v, k) => {
+      const f = s.fields.find((x) => x.key === k);
+      if (f.secret && !v) return; // empty secret box = keep what's saved
+      values[k] = String(v).trim();
+    });
+    await api('/api/settings', { json: { values } });
+  };
+  $('#save-top').onclick = async () => { try { await save(); toast('Saved'); setup(); } catch (err) { toast(err.message); } };
+  view.querySelectorAll('[data-test]').forEach((btn) => btn.onclick = async () => {
+    const p = btn.dataset.test;
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Testing…';
+    try {
+      await save();
+      const r = await api('/api/settings/test', { json: { platform: p } });
+      $(`#test-${p}`).innerHTML = `${statusBadge(r.status)} <span class="small">${esc(r.detail ?? '')}</span>`;
+    } catch (err) { toast(err.message); }
+    btn.disabled = false; btn.textContent = label;
+  });
+  view.querySelectorAll('[data-copy]').forEach((btn) => btn.onclick = async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.copy); toast('Copied'); } catch { btn.previousElementSibling.select(); }
+  });
+  view.querySelectorAll('[data-deluser]').forEach((btn) => btn.onclick = async () => {
+    if (!confirm(`Remove login "${btn.dataset.deluser}"?`)) return;
+    try { await api(`/api/users/${encodeURIComponent(btn.dataset.deluser)}`, { method: 'DELETE' }); setup(); } catch (err) { toast(err.message); }
+  });
+  $('#user-form').onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('/api/users', { json: Object.fromEntries(new FormData(e.target)) }); toast('Saved'); setup(); } catch (err) { toast(err.message); }
+  };
 }

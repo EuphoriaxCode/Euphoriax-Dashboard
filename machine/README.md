@@ -8,13 +8,26 @@
    [UEFN-MCP-Guidelines/MCP_RULES.md](https://github.com/EuphoriaxCode/UEFN-MCP-Guidelines).
 3. It streams the log back to the dashboard live. Pressing **Cancel** on the dashboard stops the run.
 4. When it finishes, the dashboard marks the job done or failed and pings Discord (`NOTIFY_DISCORD_WEBHOOK`).
-5. If Claude hits the subscription usage limit, the job goes back to the front of the queue and the worker waits
+5. The daily AI analysis also runs here (first in the queue) unless Setup → AI is set to "api". It only does web research
+   and never touches files or UEFN.
+6. If Claude hits the subscription usage limit, the job goes back to the front of the queue and the worker waits
    `LIMIT_WAIT_MINUTES` (default 30) before it tries again. Leave the PC on and it keeps working through the queue.
 
 It sends a heartbeat every minute, so the dashboard shows the machine as online, building or offline.
 If the machine goes offline while it is building, the job is put back in the queue automatically.
 
-## Setup (Windows)
+## Setup (Windows), the easy way
+
+1. Install [Node.js](https://nodejs.org) and log in to Claude once: open a terminal, run `claude`, log in, check the
+   unreal MCP server is connected, exit.
+2. In the dashboard: **Build queue → Download start file for the build PC**.
+3. Put `Start Euphoriax build PC.cmd` in your UEFN project folder and double-click it. Keep the window open.
+   (Tip: put a shortcut in `shell:startup` so it starts with Windows.)
+
+The file already contains the dashboard address and key, installs Claude Code if it's missing, downloads the latest
+worker every time it starts, and restarts it if it crashes.
+
+## Setup (manual)
 
 ```powershell
 # once: install Node 20+ and Claude Code, then log in

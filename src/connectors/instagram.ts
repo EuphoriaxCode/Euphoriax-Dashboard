@@ -7,7 +7,7 @@ const API = 'https://graph.facebook.com/v23.0';
 export const instagram: Connector = {
   name: 'Instagram',
   platform: 'instagram',
-  setup: 'INSTAGRAM_TOKEN (long-lived Graph API token) + INSTAGRAM_USER_ID (business/creator account)',
+  setup: 'Instagram token + account ID on the Setup page',
   configured: () => !!(config.instagram.token && config.instagram.userId),
   async collect() {
     const { token, userId } = config.instagram;

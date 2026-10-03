@@ -70,9 +70,14 @@ async function runJob(job) {
   await heartbeat();
   console.log(`\n▶ #${job.id} ${job.title}`);
 
-  const child = spawn(CLAUDE_BIN, ['-p', PREAMBLE + job.prompt, '--output-format', 'stream-json', '--verbose', ...CLAUDE_ARGS], {
-    cwd: WORK_DIR, shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+  // The prompt goes in through stdin: Windows caps command lines at ~32K characters.
+  const prompt = job.kind === 'analysis' ? job.prompt : PREAMBLE + job.prompt;
+  const child = spawn(CLAUDE_BIN, ['-p', '--output-format', 'stream-json', '--verbose', ...CLAUDE_ARGS], {
+    cwd: WORK_DIR, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'],
   });
+  child.on('error', (err) => { stderr += `Could not start ${CLAUDE_BIN}: ${err.message}\n`; });
+  child.stdin.on('error', () => {});
+  child.stdin.end(prompt);
 
   let buffer = '';
   let pending = '';
@@ -127,7 +132,7 @@ async function runJob(job) {
   } else {
     const ok = code === 0 && !result?.is_error;
     const summary = (result?.result ?? stderr ?? '').trim().slice(-1500) || `claude exited with code ${code}`;
-    await call(`/api/machine/jobs/${job.id}/finish`, { status: ok ? 'done' : 'failed', summary });
+    await call(`/api/machine/jobs/${job.id}/finish`, { status: ok ? 'done' : 'failed', summary, output: result?.result ?? '' });
   }
   busy = false;
   currentTitle = '';
