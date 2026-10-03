@@ -7,11 +7,11 @@ import { pipeline } from 'node:stream/promises';
 import { removeUser, requireUser, setPassword, userNames } from '../auth.js';
 import { config, env } from '../config.js';
 import { connectors, collectAll, collectOne } from '../connectors/index.js';
-import { buddy, buddyCache, discordLink, refreshBuddy } from '../connectors/buddy.js';
+import { buddy, buddyCache, buddyList, discordLink, refreshBuddy } from '../connectors/buddy.js';
 import { trendsApi } from '../connectors/uefnTrends.js';
 import { publicSettings, saveSettings } from '../settings.js';
 import {
-  contentPerformance, latestMetrics, metricHistory, products, recentSales, recentSignals, services, signalKeywords,
+  contentPerformance, latestMetrics, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
   trends, viewsByPlatform,
 } from '../data.js';
 import { db, logActivity, now } from '../db.js';
@@ -21,6 +21,7 @@ import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
 import { analysisRunning, runDailyAnalysis } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
 
+const idStr = (req: FastifyRequest) => encodeURIComponent((req.params as { id: string }).id);
 const who = (req: FastifyRequest) => (req as FastifyRequest & { user: string }).user;
 const idParam = (req: FastifyRequest) => Number((req.params as { id: string }).id);
 
@@ -107,6 +108,70 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.post('/api/discord/proposals/:id/approve', buddyAction((id) => `/knowledge/proposals/${id}/approve`, (req) => ({ reviewedBy: who(req) }), 'Approved bot knowledge'));
   app.post('/api/discord/proposals/:id/reject', buddyAction((id) => `/knowledge/proposals/${id}/reject`, (req) => ({ reviewedBy: who(req) }), 'Rejected bot knowledge'));
   app.post('/api/discord/tickets/:id/close', buddyAction((id) => `/tickets/${id}/close`, (req) => ({ closedBy: who(req) }), 'Closed a Discord ticket'));
+
+  // ---------- Knowledge base of the Discord bots ----------
+  app.get('/api/knowledge', async (req) => {
+    const q = req.query as { q?: string; category?: string; enabled?: string; offset?: string };
+    const params = new URLSearchParams({ limit: '50', offset: String(Number(q.offset) || 0) });
+    if (q.q) params.set('q', q.q);
+    if (q.category) params.set('category', q.category);
+    if (q.enabled === 'true' || q.enabled === 'false') params.set('enabled', q.enabled);
+    return buddyList(`/knowledge?${params}`);
+  });
+  app.get('/api/knowledge/overview', async () => {
+    const [all, active] = await Promise.all([buddyList('/knowledge?limit=1'), buddyList('/knowledge?limit=1&enabled=true')]);
+    const cats = await buddyList('/knowledge?limit=100&enabled=true');
+    const b = buddyCache();
+    return {
+      total: all.total,
+      active: active.total,
+      categories: [...new Set([...cats.items.map((i: any) => i.category)])].sort(),
+      gaps: (b?.unresolved ?? []).slice(0, 15).map((q: any) => ({ id: q.id, question: q.question, username: q.username, reason: q.reason, createdAt: q.createdAt })),
+      topWords: questionKeywords(14, 12),
+    };
+  });
+  app.post('/api/knowledge', async (req, reply) => {
+    const b = req.body as Record<string, unknown>;
+    const item = await buddy('/knowledge', { method: 'POST', body: { ...b, createdBy: who(req) } });
+    logActivity(`Added bot knowledge: ${String(b.question ?? '').slice(0, 60)}`, who(req));
+    return reply.code(201).send(item);
+  });
+  app.patch('/api/knowledge/:id', async (req) => {
+    const item = await buddy(`/knowledge/${idStr(req)}`, { method: 'PATCH', body: req.body });
+    return item;
+  });
+  app.delete('/api/knowledge/:id', async (req) => {
+    await buddy(`/knowledge/${idStr(req)}`, { method: 'DELETE', body: undefined });
+    logActivity('Removed bot knowledge', who(req));
+    return { ok: true };
+  });
+  // "What would the bot answer?" - the same matcher the bots use.
+  app.post('/api/knowledge/search', async (req) => {
+    const { query } = req.body as { query: string };
+    return buddy('/knowledge/search', { method: 'POST', body: { query, includeDisabled: false } });
+  });
+  // Paste many Q&As at once.
+  app.post('/api/knowledge/bulk', async (req) => {
+    const { items } = req.body as { items: Record<string, unknown>[] };
+    let added = 0;
+    const errors: string[] = [];
+    for (const it of (items ?? []).slice(0, 200)) {
+      try { await buddy('/knowledge', { method: 'POST', body: { ...it, createdBy: who(req) } }); added++; }
+      catch (err) { errors.push(`${String(it.question ?? '').slice(0, 50)}: ${err instanceof Error ? err.message : err}`); }
+    }
+    logActivity(`Imported ${added} bot knowledge entries`, who(req));
+    return { added, errors };
+  });
+  app.post('/api/knowledge/remove-examples', async (req) => {
+    const { items } = await buddyList('/knowledge?limit=100&enabled=false');
+    let removed = 0;
+    for (const it of items.filter((i: any) => i.source === 'EXAMPLE')) {
+      await buddy(`/knowledge/${it.id}`, { method: 'DELETE' }).catch(() => null);
+      removed++;
+    }
+    logActivity(`Removed ${removed} example entries`, who(req));
+    return { removed };
+  });
 
   // ---------- UEFN Trends actions ----------
   app.post('/api/trends/run-report', async (req) => {

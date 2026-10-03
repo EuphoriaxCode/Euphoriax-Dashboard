@@ -6,6 +6,7 @@ Black and white, no frills.
 - **Needs you** (top of the page): Discord questions the bots couldn't answer (type the answer, the bot posts it), knowledge
   the bots want to learn, failed builds, posts to do. Empty = nothing to do.
 - **Incoming**: views per video, Patreon sales, Discord (bots, tickets, questions), what people say, UEFN trends, growth.
+- **Knowledge**: what the Discord bots know. Add answers (one by one or pasted in bulk), test what a bot would answer, turn unanswered questions into answers.
 - **AI**: a daily report with ideas. One click sends an idea to the build PC or turns it into a post.
 - **Outgoing**: upload a video, get captions per platform, schedule it. **Build queue**: prompts the UEFN build PC works through.
 - **Status**: every bot, trend source, the build PC and every connection: online or offline. You get a Discord ping when something goes down.

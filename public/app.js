@@ -115,7 +115,7 @@ $('#refresh').onclick = async (e) => {
 };
 
 // ---------- router ----------
-const pages = { overview, incoming, ai, outgoing, build, status, setup };
+const pages = { overview, incoming, ai, knowledge, outgoing, build, status, setup };
 let timer = null;
 
 async function route() {
@@ -636,6 +636,210 @@ async function ai(sub) {
     catch (err) { toast(err.message); }
   };
   if (running) timer = setInterval(() => ai(sub).catch(() => {}), 15_000);
+}
+
+// ======================================================================
+// KNOWLEDGE (what the Discord bots know)
+// ======================================================================
+const K_STOP = new Set(('de het een en of van in op voor met is zijn was wat hoe waar wanneer wie waarom kan ik je jij we wij ons dit dat die dan om te er '
+  + 'naar bij als maar ook niet geen wel nog dus mijn jullie moet kunnen heb hebben wil wilt the a an and or to of in on for is it you we can be with this that '
+  + 'how do does my me your are was what when where why there their they have has just so but not no yes please would could should will get make like want need '
+  + 'any some from at as by if about its').split(' '));
+
+/** Simple starting point for keywords: the meaningful words of the question. */
+function suggestKeywords(question) {
+  const seen = new Set();
+  return question.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').split(/\s+/)
+    .filter((w) => w.length > 2 && !K_STOP.has(w) && !seen.has(w) && seen.add(w)).slice(0, 6);
+}
+
+/** Turns "V: question / A: answer" blocks into entries. Accepts V:/Q: and A:. */
+function parseBulk(text) {
+  const items = [];
+  for (const block of text.split(/\n\s*\n(?=\s*(?:V|Q)\s*:)/i)) {
+    const m = block.match(/^\s*(?:V|Q)\s*:\s*([\s\S]*?)\n\s*A\s*:\s*([\s\S]*)$/i);
+    if (m && m[1].trim().length >= 3 && m[2].trim()) items.push({ question: m[1].trim().replace(/\s*\n\s*/g, ' '), answer: m[2].trim(), keywords: suggestKeywords(m[1]) });
+  }
+  return items;
+}
+
+function knowledgeForm(item = {}, categories = []) {
+  const id = item.id ? `data-edit="${esc(item.id)}"` : 'id="k-new"';
+  return `<form class="stack" ${id}>
+    <label>Vraag (zoals iemand ze zou stellen)<input name="question" required minlength="3" maxlength="500" value="${esc(item.question ?? '')}" placeholder="Wat kost het pet system?"></label>
+    <label>Antwoord (precies zoals de bot het stuurt)<textarea name="answer" required maxlength="1900" rows="4" placeholder="Het pet system zit in de Creator tier ($10/maand) op Patreon…">${esc(item.answer ?? '')}</textarea></label>
+    <label>Zo kan het ook gevraagd worden (één per regel, optioneel maar sterk aangeraden)
+      <textarea name="aliases" rows="3" placeholder="prijs pet system&#10;hoeveel kost het pet system&#10;is het pet system gratis">${esc((item.aliases ?? []).join('\n'))}</textarea></label>
+    <div class="grid g2">
+      <label>Trefwoorden (komma's)<input name="keywords" value="${esc((item.keywords ?? []).join(', '))}" placeholder="pet, prijs, kost"></label>
+      <label>Categorie<input name="category" list="k-cats" value="${esc(item.category ?? 'general')}"><datalist id="k-cats">${categories.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>
+    </div>
+    <label class="check"><input type="checkbox" name="directAnswer" ${item.directAnswer === false ? '' : 'checked'}> Stuur het antwoord letterlijk als de vraag er sterk op lijkt (sneller, kost niets)</label>
+    <div class="row"><button class="primary" type="submit">${item.id ? 'Opslaan' : 'Toevoegen'}</button>${item.id ? '<button type="button" data-cancel>Annuleren</button>' : ''}<span class="small muted" data-msg></span></div>
+  </form>`;
+}
+
+const kPayload = (form) => {
+  const f = Object.fromEntries(new FormData(form));
+  const list = (v, sep) => String(v ?? '').split(sep).map((x) => x.trim()).filter(Boolean);
+  return {
+    question: f.question.trim(), answer: f.answer.trim(), category: (f.category || 'general').trim(),
+    aliases: list(f.aliases, '\n'), keywords: list(f.keywords, ','), directAnswer: form.elements.directAnswer.checked,
+  };
+};
+
+async function knowledge() {
+  const d = await api('/api/knowledge/overview').catch((err) => ({ error: err.message }));
+  if (d.error) {
+    view.innerHTML = `<div class="card strong">Bot Buddy is niet bereikbaar (${esc(d.error)}). <a href="#setup">Controleer de verbinding op de Setup-pagina →</a></div>`;
+    return;
+  }
+  let state = { q: '', category: '', enabled: '', offset: 0 };
+  view.innerHTML = `
+    <div class="spread" style="margin-bottom:16px"><div><h1 style="font-size:20px">Kennisbank van de Discord-bots</h1>
+      <div class="small muted">De bots antwoorden over jullie bedrijf alleen op wat hier staat. Hoe meer ze weten, hoe minder "ik vraag het na" je ziet.</div></div></div>
+    <div class="kpis">
+      ${kpi('Actieve antwoorden', String(d.active), 'de bots gebruiken deze')}
+      ${kpi('Uitgeschakeld', String(d.total - d.active), 'worden niet gebruikt')}
+      ${kpi('Onbeantwoorde vragen', String(d.gaps.length), 'wachten op jou')}
+    </div>
+    ${d.active === 0 ? `<div class="inbox" style="margin-bottom:16px"><strong>De kennisbank is leeg.</strong> Daarom zegt de bot overal "ik vraag het na". Voeg hieronder je 10 meest gestelde vragen toe, of plak ze in één keer bij "Meerdere tegelijk".</div>` : ''}
+    <div class="grid g2">
+      <div class="stack">
+        <div class="card strong"><h2 style="margin-bottom:10px">Antwoord toevoegen</h2><div id="k-add">${knowledgeForm({}, d.categories)}</div></div>
+        <div class="card"><h2 style="margin-bottom:6px">Meerdere tegelijk toevoegen</h2>
+          <p class="small muted" style="margin-top:0">Zet elke vraag met <span class="mono">V:</span> en elk antwoord met <span class="mono">A:</span>, met een lege regel tussen de vragen. Trefwoorden worden automatisch gemaakt.</p>
+          <textarea id="k-bulk" rows="8" placeholder="V: Wat kost het pet system?&#10;A: Het zit in de Creator tier ($10/maand) op Patreon.&#10;&#10;V: Hoe installeer ik een systeem?&#10;A: Sleep het device in je level, koppel de widget en push changes."></textarea>
+          <div class="row" style="margin-top:8px"><button id="k-bulk-go" class="primary">Toevoegen</button><span id="k-bulk-info" class="small muted"></span></div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="card"><h2 style="margin-bottom:6px">Test: wat zou de bot antwoorden?</h2>
+          <form id="k-test" class="row"><input name="query" placeholder="Typ een vraag zoals een lid ze zou stellen" required style="flex:1"><button>Test</button></form>
+          <div id="k-test-out" class="small" style="margin-top:10px"></div></div>
+        <div class="card"><h2 style="margin-bottom:6px">Vragen waar de bot geen antwoord op had</h2>
+          ${d.gaps.length ? `<ul class="list">${d.gaps.map((g) => `<li class="spread"><div><strong>${esc(g.question)}</strong><div class="small muted">${esc(g.username)} · ${ago(new Date(g.createdAt).getTime())}</div></div>
+            <button data-gap="${esc(g.question)}">Antwoord toevoegen</button></li>`).join('')}</ul>` : empty('✓ Niets openstaand.')}
+          ${d.topWords.length ? `<h3 style="margin:14px 0 6px">Waar leden het vaakst naar vragen · 14 dagen</h3>${keywordBars(d.topWords)}` : ''}
+        </div>
+      </div>
+    </div>
+    <h2 class="section-title">Alle antwoorden</h2>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="k-q" placeholder="Zoek in vragen en antwoorden" style="flex:1;min-width:200px">
+        <select id="k-cat" style="width:auto"><option value="">Alle categorieën</option>${d.categories.map((c) => `<option>${esc(c)}</option>`).join('')}</select>
+        <select id="k-en" style="width:auto"><option value="">Alle</option><option value="true">Actief</option><option value="false">Uitgeschakeld</option></select>
+        <button id="k-ex" hidden>Voorbeelden verwijderen</button>
+      </div>
+      <div id="k-list"></div>
+    </div>`;
+
+  const reload = () => knowledge();
+  const flash = (el, msg) => { const m = el.querySelector('[data-msg]'); if (m) m.textContent = msg; };
+
+  // add one
+  const addForm = $('#k-new');
+  const qInput = addForm.elements.question;
+  qInput.addEventListener('blur', () => { if (!addForm.elements.keywords.value.trim() && qInput.value.trim()) addForm.elements.keywords.value = suggestKeywords(qInput.value).join(', '); });
+  addForm.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const body = kPayload(addForm);
+      if (!body.keywords.length) body.keywords = suggestKeywords(body.question);
+      await api('/api/knowledge', { json: body });
+      toast('Toegevoegd. De bots gebruiken het meteen.');
+      reload();
+    } catch (err) { flash(addForm, err.message); }
+  };
+  view.querySelectorAll('[data-gap]').forEach((b) => b.onclick = () => {
+    qInput.value = b.dataset.gap;
+    addForm.elements.keywords.value = suggestKeywords(b.dataset.gap).join(', ');
+    addForm.elements.answer.focus();
+    addForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  // bulk
+  const bulk = $('#k-bulk');
+  bulk.oninput = () => { const n = parseBulk(bulk.value).length; $('#k-bulk-info').textContent = n ? `${n} antwoord${n > 1 ? 'en' : ''} herkend` : ''; };
+  $('#k-bulk-go').onclick = async () => {
+    const items = parseBulk(bulk.value);
+    if (!items.length) return toast('Geen vragen herkend. Gebruik "V:" en "A:".');
+    try {
+      const r = await api('/api/knowledge/bulk', { json: { items } });
+      toast(`${r.added} toegevoegd${r.errors.length ? `, ${r.errors.length} mislukt` : ''}`);
+      if (r.errors.length) alert(r.errors.join('\n'));
+      reload();
+    } catch (err) { toast(err.message); }
+  };
+
+  // test
+  $('#k-test').onsubmit = async (e) => {
+    e.preventDefault();
+    const out = $('#k-test-out');
+    out.textContent = 'Zoeken…';
+    try {
+      const matches = await api('/api/knowledge/search', { json: { query: new FormData(e.target).get('query') } });
+      const top = matches[0];
+      const verdict = !top || top.score < 0.3 ? ['✕ Niets gevonden', 'De bot zegt "ik vraag het na" en zet de vraag bij Needs you. Voeg dit antwoord toe.']
+        : top.directAnswerEligible ? ['● Antwoordt meteen', 'De bot stuurt dit antwoord letterlijk, zonder AI.']
+          : top.score >= 0.45 ? ['● Antwoordt met AI', 'De AI formuleert een antwoord op basis van dit item.']
+            : ['◐ Te zwak', 'De bot durft hier niet op te antwoorden. Voeg "zo kan het ook gevraagd worden" of trefwoorden toe.'];
+      out.innerHTML = `<div class="quote"><strong>${verdict[0]}</strong><div>${verdict[1]}</div></div>` + matches.slice(0, 4).map((m) =>
+        `<div style="margin-top:6px"><span class="tag ${m.score >= 0.45 ? 'dark' : ''}">${Math.round(m.score * 100)}%</span><span class="tag">${esc(m.matchedBy)}</span> <strong>${esc(m.item.question)}</strong></div>`).join('');
+    } catch (err) { out.textContent = err.message; }
+  };
+
+  // list
+  async function loadList(append = false) {
+    const el = $('#k-list');
+    const params = new URLSearchParams({ offset: state.offset });
+    if (state.q) params.set('q', state.q);
+    if (state.category) params.set('category', state.category);
+    if (state.enabled) params.set('enabled', state.enabled);
+    const r = await api(`/api/knowledge?${params}`);
+    const rows = r.items.map((i) => `<div class="inbox-item" data-k="${esc(i.id)}" data-json='${esc(JSON.stringify(i))}'>
+      <div class="spread"><div style="min-width:0;flex:1"><strong>${esc(i.question)}</strong>
+        <div class="small muted" style="white-space:pre-wrap">${esc(i.answer.length > 240 ? i.answer.slice(0, 240) + '…' : i.answer)}</div>
+        <div style="margin-top:4px"><span class="tag">${esc(i.category)}</span>${i.source === 'EXAMPLE' ? '<span class="tag">voorbeeld</span>' : ''}${i.enabled ? '' : '<span class="tag dark">uit</span>'}
+          ${i.directAnswer ? '<span class="tag">letterlijk</span>' : '<span class="tag">via AI</span>'}${(i.aliases ?? []).length ? `<span class="small muted">${i.aliases.length} formulering${i.aliases.length > 1 ? 'en' : ''}</span>` : '<span class="small muted">geen alternatieve formuleringen</span>'}</div></div>
+        <div class="row"><button data-act="toggle">${i.enabled ? 'Uitzetten' : 'Aanzetten'}</button><button data-act="edit">Aanpassen</button><button data-act="delete">Verwijderen</button></div></div>
+      <div data-editbox hidden></div></div>`).join('');
+    el.innerHTML = (append ? el.innerHTML.replace(/<div class="spread"[^>]*data-more[\s\S]*$/, '') : '') + rows;
+    if (!append && !r.items.length) el.innerHTML = empty(state.q || state.category || state.enabled ? 'Niets gevonden.' : 'Nog geen antwoorden. Voeg er hierboven een toe.');
+    if (state.offset + r.items.length < r.total) el.insertAdjacentHTML('beforeend', `<div class="spread" data-more><span class="small muted">${state.offset + r.items.length} van ${r.total}</span><button id="k-more">Meer laden</button></div>`);
+    $('#k-more')?.addEventListener('click', () => { state.offset += 50; loadList(true); });
+    $('#k-ex').hidden = !r.items.some((i) => i.source === 'EXAMPLE') && state.enabled !== 'false';
+    bindRows();
+  }
+  function bindRows() {
+    $('#k-list').querySelectorAll('[data-k] [data-act]').forEach((btn) => btn.onclick = async () => {
+      const row = btn.closest('[data-k]');
+      const item = JSON.parse(row.dataset.json);
+      try {
+        if (btn.dataset.act === 'toggle') { await api(`/api/knowledge/${item.id}`, { method: 'PATCH', json: { enabled: !item.enabled } }); return reload(); }
+        if (btn.dataset.act === 'delete') { if (!confirm('Dit antwoord verwijderen?')) return; await api(`/api/knowledge/${item.id}`, { method: 'DELETE' }); return reload(); }
+        const box = row.querySelector('[data-editbox]');
+        box.hidden = false; box.innerHTML = `<div style="margin-top:10px">${knowledgeForm(item, d.categories)}</div>`;
+        const form = box.querySelector('form');
+        form.querySelector('[data-cancel]').onclick = () => { box.hidden = true; box.innerHTML = ''; };
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          try { await api(`/api/knowledge/${item.id}`, { method: 'PATCH', json: kPayload(form) }); toast('Opgeslagen'); reload(); }
+          catch (err) { flash(form, err.message); }
+        };
+      } catch (err) { toast(err.message); }
+    });
+  }
+  let t;
+  $('#k-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { state = { ...state, q: e.target.value, offset: 0 }; loadList(); }, 300); };
+  $('#k-cat').onchange = (e) => { state = { ...state, category: e.target.value, offset: 0 }; loadList(); };
+  $('#k-en').onchange = (e) => { state = { ...state, enabled: e.target.value, offset: 0 }; loadList(); };
+  $('#k-ex').onclick = async () => {
+    if (!confirm('De 4 voorbeeldantwoorden verwijderen? Ze zijn uitgeschakeld en worden toch niet gebruikt.')) return;
+    try { const r = await api('/api/knowledge/remove-examples', { json: {} }); toast(`${r.removed} verwijderd`); reload(); } catch (err) { toast(err.message); }
+  };
+  loadList();
 }
 
 // ======================================================================

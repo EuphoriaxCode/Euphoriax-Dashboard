@@ -81,3 +81,14 @@ export function services() {
     CASE status WHEN 'offline' THEN 0 WHEN 'degraded' THEN 1 WHEN 'unknown' THEN 2 WHEN 'online' THEN 3 ELSE 4 END, kind, name`)
     .all() as any[];
 }
+
+/** Words that come up most in real questions (not chatter), so we can see what the knowledge base should cover. */
+export function questionKeywords(days = 14, top = 15) {
+  const rows = db.prepare(`SELECT text FROM signals WHERE ts > ? AND kind IN ('question', 'request')`).all(now() - days * DAY) as { text: string }[];
+  const counts = new Map<string, number>();
+  for (const { text } of rows) {
+    const words = new Set(text.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w)));
+    for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, top).map(([word, count]) => ({ word, count }));
+}

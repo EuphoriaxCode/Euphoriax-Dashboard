@@ -32,6 +32,13 @@ function rememberPublicUrl(req: FastifyRequest) {
 }
 
 const app = Fastify({ logger: { level: 'warn' }, trustProxy: true, bodyLimit: 2 * 1024 * 1024 });
+// The page shows `error` as-is, so always send a readable message (not "Internal Server Error").
+app.setErrorHandler((error, req, reply) => {
+  const err = error as { statusCode?: number; message?: string };
+  const status = err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
+  if (status === 500) req.log.error(error);
+  reply.code(status).send({ error: err.message || 'Something went wrong' });
+});
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 4 * 1024 ** 3, files: 1 } });
 

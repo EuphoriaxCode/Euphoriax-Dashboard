@@ -16,6 +16,14 @@ export async function buddy<T = any>(path: string, init: { method?: string; body
   return (res?.data ?? res) as T;
 }
 
+/** For list endpoints: returns the items plus the total from `meta`. */
+export async function buddyList(path: string): Promise<{ items: any[]; total: number }> {
+  const res = await getJson(`${config.buddy.url}/api/v1${path}`, { headers: { authorization: `Bearer ${config.buddy.apiKey}` } });
+  if (res && res.ok === false) throw new Error(res.error?.message ?? 'Bot Buddy error');
+  const items = Array.isArray(res?.data) ? res.data : [];
+  return { items, total: res?.meta?.total ?? items.length };
+}
+
 export interface BuddyCache {
   ts: number;
   status: any;

@@ -13,7 +13,12 @@ export interface Connector {
 export async function getJson<T = any>(url: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
+  if (!res.ok) {
+    // Prefer the other service's own message ("question too short") over raw JSON.
+    let msg = text.slice(0, 200);
+    try { const j = JSON.parse(text); msg = j?.error?.message ?? (typeof j?.error === 'string' ? j.error : j?.message) ?? msg; } catch { /* not json */ }
+    throw new Error(res.status === 401 || res.status === 403 ? `${res.status}: wrong key (${msg})` : msg);
+  }
   return text ? JSON.parse(text) : ({} as T);
 }
 
