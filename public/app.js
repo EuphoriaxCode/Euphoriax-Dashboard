@@ -802,7 +802,8 @@ async function ai(sub) {
       <div><h1 style="font-size:20px">Daily AI analysis</h1>
       <div class="small muted">Every morning the AI reads all incoming data, combines it with the UEFN trends and searches the web for what people want.</div></div>
       ${running?.status === 'queued' ? `<div class="small muted" style="flex-basis:100%">Waiting for your build PC. The analysis runs there (on your Claude subscription) and starts as soon as the PC is on and the start file is running. See <a href="#build">Build queue</a>.</div>` : ''}
-      <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? (running.status === 'queued' ? 'Waiting for the build PC…' : 'Running… (takes a few minutes)') : 'Run analysis now'}</button>
+      <div class="row"><button id="pack" title="Copies the instructions plus all numbers, to paste into ChatGPT, Claude or any other AI">Copy data for another AI</button>
+      <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? (running.status === 'queued' ? 'Waiting for the build PC…' : 'Running… (takes a few minutes)') : 'Run analysis now'}</button></div>
     </div>
     <div class="grid g3">
       <div class="span2 stack">
@@ -820,6 +821,14 @@ async function ai(sub) {
           <div class="small muted">${when(x.ts)} · ${esc(x.status)}</div><div>${esc(x.summary ?? x.error ?? '')}</div></a></li>`).join('') || '<li class="muted">None</li>'}</ul></div>
     </div>`;
   bindIdeaButtons();
+  $('#pack').onclick = async () => {
+    try {
+      const { text, chars } = await api('/api/analysis-pack');
+      try { await navigator.clipboard.writeText(text); toast(`Copied (${fmt(chars)} characters). Paste it into the other AI.`); return; } catch { /* no clipboard access: download instead */ }
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'text/plain' })), download: `euphoriax-analysis-${new Date().toISOString().slice(0, 10)}.txt` });
+      a.click(); URL.revokeObjectURL(a.href); toast('Downloaded as a text file. Paste its content into the other AI.');
+    } catch (err) { toast(err.message); }
+  };
   $('#run').onclick = async () => {
     try {
       const r = await api('/api/reports/run', { json: {} });

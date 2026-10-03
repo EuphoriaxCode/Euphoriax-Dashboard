@@ -19,7 +19,7 @@ import { addJob, moveJob } from '../jobs.js';
 import { checkServices, httpServices } from '../monitor.js';
 import { ACTIONS, controlState, requestAction, setAutoUpdate } from '../serverControl.js';
 import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
-import { analysisRunning, dropQueuedAnalysis, runDailyAnalysis } from '../ai/daily.js';
+import { analysisRunning, buildSnapshot, dropQueuedAnalysis, runDailyAnalysis, SYSTEM } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
 
 const idStr = (req: FastifyRequest) => encodeURIComponent((req.params as { id: string }).id);
@@ -277,6 +277,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (analysisRunning()) return reply.code(409).send({ error: 'An analysis is already running' });
     runDailyAnalysis(who(req)).catch(() => { /* recorded on the report row */ });
     return { started: true, mode: config.aiMode };
+  });
+  // Everything the daily analysis gets, as one text to paste into any other AI (to compare answers).
+  app.get('/api/analysis-pack', async () => {
+    const text = `${SYSTEM}\n\n(If you can search the web, do that as described above. If not, work from the snapshot alone and say so.)\n\n` +
+      `=== SNAPSHOT (JSON) ===\n${JSON.stringify(buildSnapshot(), null, 1)}\n`;
+    return { text, chars: text.length };
   });
   app.get('/api/ideas', async (req) => {
     const q = req.query as { status?: string };
