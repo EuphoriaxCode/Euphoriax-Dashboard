@@ -31,16 +31,16 @@ const insertSignal = () => db.prepare(`INSERT OR IGNORE INTO signals (source, ki
   VALUES ('discord', ?, ?, ?, ?, ?, ?, ?)`);
 
 /** Pulls the real questions people asked the bots, so the daily AI knows what the community wants. */
-async function importMessages() {
+async function importMessages(list: (v: any, key?: string) => any[]) {
   const since = kvGet<number>('buddy_conv_since') ?? now() - 7 * 864e5;
-  const convs = await buddy<any[]>('/conversations?limit=50');
+  const convs = list(await buddy('/conversations?limit=50'), 'items');
   const ins = insertSignal();
   let newest = since;
   for (const c of convs) {
     const last = toMs(c.lastActivityAt) ?? 0;
     if (last <= since) continue;
     newest = Math.max(newest, last);
-    const msgs = await buddy<any[]>(`/conversations/${c.id}/messages?limit=50`);
+    const msgs = list(await buddy(`/conversations/${c.id}/messages?limit=50`), 'items');
     for (const m of msgs) {
       if (m.authorType !== 'USER' || !m.content?.trim()) continue;
       ins.run(/\?\s*$|^(how|what|why|where|when|can|does|is|do)\b/i.test(m.content.trim()) ? 'question' : 'message',
@@ -51,20 +51,26 @@ async function importMessages() {
 }
 
 export async function refreshBuddy() {
-  const [status, personas, unresolved, tickets, proposals] = await Promise.all([
+  // Lists come back as arrays; /personas wraps them as { personas, routing }.
+  const list = (v: any, key?: string): any[] => (Array.isArray(v) ? v : key && Array.isArray(v?.[key]) ? v[key] : []);
+  const [status, personasRes, unresolvedRes, ticketsRes, proposalsRes] = await Promise.all([
     buddy('/status'),
-    buddy<any[]>('/personas').catch(() => []),
-    buddy<any[]>('/unresolved?status=OPEN&limit=100'),
-    buddy<any[]>('/tickets?status=ACTIVE&limit=100'),
-    buddy<any[]>('/knowledge/proposals?status=PENDING&limit=100').catch(() => []),
+    buddy('/personas').catch(() => null),
+    buddy('/unresolved?status=OPEN&limit=100'),
+    buddy('/tickets?status=ACTIVE&limit=100'),
+    buddy('/knowledge/proposals?status=PENDING&limit=100').catch(() => null),
   ]);
+  const personas = list(personasRes, 'personas');
+  const unresolved = list(unresolvedRes, 'items');
+  const tickets = list(ticketsRes, 'items');
+  const proposals = list(proposalsRes, 'items');
   kvSet('buddy_cache', { ts: now(), status, personas, unresolved, tickets, proposals } satisfies BuddyCache);
 
   // Each bot account becomes its own line on the Status page.
   const nameOf = (id: string) => personas.find((p: any) => p.id === id)?.displayName;
   for (const [key, id] of [['founderA', 'FOUNDER_A'], ['founderB', 'FOUNDER_B']] as const) {
     const b = status.bots?.[key];
-    if (!b) continue;
+    if (!b || b.configured === false) continue; // a bot account that isn't set up isn't "offline"
     setServiceStatus(`buddy:${key}`, 'bot', b.connected ? 'online' : 'offline',
       b.connected ? `connected · ${b.latencyMs ?? '?'} ms` : 'disconnected from Discord', `Discord bot · ${nameOf(id) ?? key}`);
   }
@@ -81,7 +87,7 @@ export async function refreshBuddy() {
   for (const q of unresolved) ins.run('question', q.username, q.discordChannelId, q.question, discordLink(q), toMs(q.createdAt) ?? now(), `buddy-uq:${q.id}`);
   for (const t of tickets) ins.run('ticket', t.discordUserId, 'ticket', `[${t.category}] ${t.summary ?? 'new ticket'}`, null, toMs(t.createdAt) ?? now(), `buddy-t:${t.id}`);
 
-  await importMessages().catch((err) => console.error('buddy message import', err));
+  await importMessages(list).catch((err) => console.error('buddy message import', err));
   return `${unresolved.length} questions waiting, ${tickets.length} open tickets`;
 }
 
