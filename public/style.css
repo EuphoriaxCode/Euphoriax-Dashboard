@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #ffffff;
   --fg: #0a0a0a;
   --muted: #6b6b6b;
@@ -9,12 +10,6 @@
   --bar-track: #ececec;
   --invert-bg: #0a0a0a;
   --invert-fg: #ffffff;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0b0b0b; --fg: #f2f2f2; --muted: #9a9a9a; --line: #2c2c2c; --strong-line: #f2f2f2;
-    --soft: #151515; --bar: #f2f2f2; --bar-track: #222222; --invert-bg: #f2f2f2; --invert-fg: #0b0b0b;
-  }
 }
 :root[data-theme="dark"] {
   --bg: #0b0b0b; --fg: #f2f2f2; --muted: #9a9a9a; --line: #2c2c2c; --strong-line: #f2f2f2;
@@ -111,7 +106,6 @@ td.title a:hover { text-decoration: underline; }
 /* Status (icon + label, never color alone) */
 /* Status dots: the only colour in the dashboard. Green + pulsing = online, red = not. */
 :root { --ok: #16a34a; --bad: #dc2626; --warn: #d97706; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ok: #22c55e; --bad: #f87171; --warn: #fbbf24; } }
 :root[data-theme="dark"] { --ok: #22c55e; --bad: #f87171; --warn: #fbbf24; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; vertical-align: middle; margin-right: 7px; }
 .dot.online { background: var(--ok); animation: pulse 2s ease-out infinite; }
