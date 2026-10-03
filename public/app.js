@@ -1145,21 +1145,27 @@ async function serverPanel(box) {
     const waiting = Date.now() < waitUntil && st.startedAt === prevStart;
     const running = st.state === 'running' || s.queued > 0 || waiting;
     const apps = s.versions?.apps ?? [];
-    const behind = apps.reduce((n, a) => n + a.behind, 0);
+    const behind = apps.reduce((n, a) => n + (a.blocked ? 0 : a.behind), 0);
     const last = st.state === 'done' || st.state === 'failed'
-      ? `<div class="row" style="margin-top:12px"><span class="status ${st.state === 'done' ? 'online' : 'offline'}">${dot(st.state === 'done' ? 'online' : 'offline')}Last run: ${esc(SERVER_BUTTONS.find((b) => b[0] === st.action)?.[1] ?? st.action)} ${st.state === 'done' ? 'finished' : 'finished with errors'}</span>
-         <span class="small muted">${ago(st.finishedAt)}</span></div>` : '';
+      ? `<div class="row" style="margin-top:12px"><span class="status ${st.state === 'done' ? 'online' : 'offline'}">${dot(st.state === 'done' ? 'online' : 'offline')}Last run: ${esc(st.action === 'auto-update' ? 'Automatic update' : SERVER_BUTTONS.find((b) => b[0] === st.action)?.[1] ?? st.action)} ${st.state === 'done' ? 'finished' : 'finished with errors'}</span>
+         <span class="small muted">${ago(st.finishedAt)}</span></div>${st.note ? `<div class="small" style="margin-top:4px">${esc(st.note)}</div>` : ''}` : '';
     box.innerHTML = `<div class="card strong" style="margin-bottom:16px" ${running ? 'data-busy' : ''}>
       <div class="spread"><h2>Server</h2><span class="small muted">${s.versions ? `checked for updates ${ago(s.versions.checkedAt)}` : ''}</span></div>
       ${apps.length ? `<div class="table-wrap" style="margin-top:8px"><table><tr><th>App</th><th>Version</th><th></th></tr>${apps.map((a) => `<tr><td><strong>${esc(a.label)}</strong></td>
         <td><span class="mono">${esc(a.hash)}</span> <span class="muted small">${esc(a.subject)} · ${ago(a.date)}</span></td>
-        <td class="num">${a.behind > 0 ? `<span class="tag dark">${a.behind} update${a.behind > 1 ? 's' : ''} available</span>` : '<span class="small muted">up to date</span>'}</td></tr>`).join('')}</table></div>` : ''}
+        <td class="num">${a.blocked ? `<span class="tag" data-tip="The newest version did not start or build on this server, so it was skipped (or rolled back). It is tried again as soon as a newer version is pushed.">newest version failed, waiting for a fix</span>` : a.error ? `<span class="tag" data-tip="The server could not reach GitHub for this app. Log in to GitHub again on the server: gh auth login">can't check GitHub</span>` : a.behind > 0 ? `<span class="tag dark">${a.behind} update${a.behind > 1 ? 's' : ''} available</span>` : '<span class="small muted">up to date</span>'}</td></tr>`).join('')}</table></div>` : ''}
       ${running ? `<div class="row" style="margin-top:12px"><span class="status degraded">${dot('degraded')}${st.state === 'running' ? esc(st.step || 'Working…') : 'Waiting for the server to pick it up…'}</span></div>
         <div class="log mono" id="server-log" style="margin-top:8px;max-height:220px">${esc(s.log || '')}</div>`
         : `<div class="row" style="margin-top:12px">${SERVER_BUTTONS.map(([id, label], i) => `<button data-sv="${id}" class="${i === 0 ? 'primary' : ''}">${i === 0 && behind ? `${label} (${behind} new)` : label}</button>`).join('')}</div>${last}
-        ${s.log && st.state !== 'idle' ? `<details style="margin-top:8px"><summary>Show details of the last run</summary><div class="log mono" style="margin-top:6px;max-height:260px">${esc(s.log)}</div></details>` : ''}`}
+        ${s.log && st.state !== 'idle' ? `<details style="margin-top:8px"><summary>Show details of the last run</summary><div class="log mono" style="margin-top:6px;max-height:260px">${esc(s.log)}</div></details>` : ''}
+        <label class="check" style="margin-top:12px"><input type="checkbox" data-auto ${s.autoUpdate ? 'checked' : ''}> Update automatically when something new is pushed to GitHub</label>
+        <div class="small muted">Checks every minute. If an app does not start after an update, it goes back to the previous version by itself and you get a Discord message.</div>`}
     </div>`;
     const lg = box.querySelector('#server-log'); if (lg) lg.scrollTop = lg.scrollHeight;
+    box.querySelector('[data-auto]')?.addEventListener('change', async (e) => {
+      try { await api('/api/server/auto', { json: { enabled: e.target.checked } }); toast(e.target.checked ? 'Automatic updates are on' : 'Automatic updates are off'); }
+      catch (err) { toast(err.message); e.target.checked = !e.target.checked; }
+    });
     box.querySelectorAll('[data-sv]').forEach((b) => b.onclick = async () => {
       const def = SERVER_BUTTONS.find((x) => x[0] === b.dataset.sv);
       if (!confirm(`${def[1]}?\n\n${def[2]}`)) return;

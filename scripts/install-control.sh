@@ -7,6 +7,8 @@ ROOT="${EUX_ROOT:-/opt/euphoriax}"
 CTL="$ROOT/dashboard/data/control"
 mkdir -p "$CTL/queue"
 chmod +x "$ROOT/dashboard/scripts/control/"*.sh
+# Automatic updates are on by default (switch in the dashboard: Status -> Server). Only decided once.
+if [ ! -e "$CTL/autoupdate.configured" ]; then touch "$CTL/autoupdate" "$CTL/autoupdate.configured"; fi
 
 cat > /etc/systemd/system/euphoriax-control.service <<UNIT
 [Unit]

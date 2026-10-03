@@ -119,6 +119,12 @@ Dashboard → **Status** → vak **Server**. Daar staat per app welke versie dra
 *Update everything*, *Restart Discord bots*, *Restart UEFN Trends*, *Restart dashboard*, *Restart everything* en *Reboot the server*.
 Je ziet live wat er gebeurt, en je krijgt een Discord-ping als het klaar is. Bij een update herlaadt de pagina zichzelf.
 
+**Automatisch updaten.** Staat standaard aan (schakelaar onderaan het Server-vak): de server kijkt elke minuut of er iets nieuws
+op GitHub staat en rolt het zelf uit, alleen de apps die veranderd zijn. Vangnetten:
+- start een app na de update niet meer, dan gaat hij **automatisch terug naar de vorige versie** en krijg je een Discord-bericht;
+- faalt een build, dan blijft de oude versie draaien;
+- een versie die zo mislukt is, wordt niet elke minuut opnieuw geprobeerd, pas weer als er een nieuwere gepusht wordt (in het Server-vak staat dan "newest version failed, waiting for a fix").
+
 Eenmalig moet het hulpprogramma achter de knoppen geïnstalleerd worden (nieuwe servers krijgen het automatisch):
 ```bash
 ssh root@JOUW-IP

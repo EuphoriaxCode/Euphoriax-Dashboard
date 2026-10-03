@@ -17,7 +17,7 @@ import {
 import { db, logActivity, now } from '../db.js';
 import { addJob, moveJob } from '../jobs.js';
 import { checkServices, httpServices } from '../monitor.js';
-import { ACTIONS, controlState, requestAction } from '../serverControl.js';
+import { ACTIONS, controlState, requestAction, setAutoUpdate } from '../serverControl.js';
 import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
 import { analysisRunning, runDailyAnalysis } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
@@ -51,7 +51,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         proposals: (b?.proposals ?? []).slice(0, 5),
         tickets: b?.tickets.length ?? 0,
         drafts: (db.prepare('SELECT COUNT(*) n FROM kb_drafts').get() as { n: number }).n,
-        updates: (() => { const c = controlState(); return c.helperInstalled ? (c.versions?.apps ?? []).filter((a) => a.behind > 0).map((a) => ({ label: a.label, behind: a.behind })) : []; })(),
+        updates: (() => { const c = controlState(); return c.helperInstalled ? (c.versions?.apps ?? []).filter((a) => a.behind > 0 && !a.blocked).map((a) => ({ label: a.label, behind: a.behind })) : []; })(),
         failedBuilds: db.prepare(`SELECT id, title, summary FROM jobs WHERE status = 'failed' AND kind = 'build' AND finished_at > ?`).all(now() - 2 * 864e5),
         postsToHandle: db.prepare(`SELECT id, title, status, platforms FROM posts WHERE status IN ('manual', 'failed', 'partial') AND scheduled_at > ?`).all(now() - 7 * 864e5),
       },
@@ -342,6 +342,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const { action } = req.body as { action: string };
     requestAction(action, who(req));
     return { ok: true, label: ACTIONS[action] };
+  });
+
+  app.post('/api/server/auto', async (req) => {
+    setAutoUpdate(!!(req.body as { enabled?: boolean }).enabled, who(req));
+    return { ok: true };
   });
 
   // ---------- Status & settings ----------

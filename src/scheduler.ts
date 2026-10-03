@@ -31,7 +31,9 @@ export function startScheduler() {
     if (status.finishedAt <= (kvGet<number>('control_notified') ?? 0)) return;
     kvSet('control_notified', status.finishedAt);
     const label = ACTIONS[status.action ?? ''] ?? status.action;
-    await notify(status.state === 'done' ? `✅ **${label}** is done` : `❌ **${label}** finished with errors. Check Status → Server in the dashboard.`);
+    const note = status.note ? `\n${status.note}` : '';
+    if (status.action === 'auto-update' && status.state === 'done' && !status.note) return;   // nothing was actually deployed
+    await notify(status.state === 'done' ? `✅ **${label}** is done${note}` : `❌ **${label}** finished with errors${note}\nDetails: ${config.publicUrl}/#status`);
   });
   every(15 * 60_000, 'autodetect', async () => {
     const found = await autodetectServices(env);

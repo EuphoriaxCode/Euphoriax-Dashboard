@@ -9,7 +9,7 @@ Black and white, no frills.
 - **Knowledge**: what the Discord bots know. Add answers (one by one or pasted in bulk), test what a bot would answer, turn unanswered questions into answers.
 - **AI**: a daily report with ideas. One click sends an idea to the build PC or turns it into a post.
 - **Outgoing**: upload a video, get captions per platform, schedule it. **Build queue**: prompts the UEFN build PC works through.
-- **Status → Server**: Update and Restart buttons (everything, Discord bots, UEFN Trends, dashboard, or reboot) with live progress. Needs a one-time `bash scripts/install-control.sh` on the server (new installs get it automatically).
+- **Status → Server**: Update and Restart buttons (everything, Discord bots, UEFN Trends, dashboard, or reboot) with live progress. Updates also deploy automatically when something is pushed to GitHub (checked every minute, with health check and automatic rollback; switch in the same box). Needs a one-time `bash scripts/install-control.sh` on the server (new installs get it automatically).
 - **Status**: every bot, trend source, the build PC and every connection: online or offline. You get a Discord ping when something goes down.
 
 It plugs into what we already have:
