@@ -246,7 +246,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.post('/api/reports/run', async (req, reply) => {
     if (analysisRunning()) return reply.code(409).send({ error: 'An analysis is already running' });
     runDailyAnalysis(who(req)).catch(() => { /* recorded on the report row */ });
-    return { started: true, mode: config.aiMode === 'api' && config.anthropicKey ? 'api' : 'machine' };
+    return { started: true, mode: config.aiMode };
   });
   app.get('/api/ideas', async (req) => {
     const q = req.query as { status?: string };
@@ -265,7 +265,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return { jobId: addJob(idea.title, prompt, who(req), idea.id) };
   });
   app.post('/api/captions', async (req, reply) => {
-    if (!config.anthropicKey) return reply.code(400).send({ error: 'AI captions need a Claude API key (Setup page)' });
+    if (!config.captionsEngine) return reply.code(400).send({ error: 'AI captions need an OpenAI key (Setup page, AI)' });
     const body = req.body as { title: string; notes?: string; platforms: string[] };
     return writeCaptions(body);
   });
@@ -359,7 +359,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get('/api/settings', async () => ({
     fields: publicSettings(env),
     connectors: connectors.map((c) => ({ name: c.name, platform: c.platform, configured: c.configured(), setup: c.setup })),
-    ai: { configured: !!config.anthropicKey, mode: config.aiMode, model: config.aiModel, dailyHour: config.dailyHour },
+    ai: { configured: !!config.captionsEngine, mode: config.aiMode, model: config.aiMode === 'openai' ? config.openaiModel : config.aiModel, openaiKey: !!config.openaiKey, dailyHour: config.dailyHour },
     publisher: { mode: config.publisher, ready: config.publisher === 'manual' || !!(config.ayrshareKey || config.publishWebhook) },
     keys: { ingest: config.ingestKey, machine: config.machineKey },
     urls: {

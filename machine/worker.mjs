@@ -28,6 +28,13 @@ const PREAMBLE = process.env.PROMPT_PREAMBLE ??
 
 if (!KEY) { console.error('Set MACHINE_KEY'); process.exit(1); }
 
+// Builds must run on your Claude SUBSCRIPTION (the account you logged in with via `claude`), never on pay-per-token API billing.
+// Claude Code switches to the API as soon as ANTHROPIC_API_KEY exists, so Claude never gets to see it.
+const CHILD_ENV = { ...process.env };
+for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) {
+  if (CHILD_ENV[k]) { console.log(`Note: ${k} is set on this PC. Ignoring it so builds use your Claude subscription, not API billing.`); delete CHILD_ENV[k]; }
+}
+
 let busy = false;
 let currentTitle = '';
 
@@ -73,7 +80,7 @@ async function runJob(job) {
   // The prompt goes in through stdin: Windows caps command lines at ~32K characters.
   const prompt = job.kind === 'analysis' ? job.prompt : PREAMBLE + job.prompt;
   const child = spawn(CLAUDE_BIN, ['-p', '--output-format', 'stream-json', '--verbose', ...CLAUDE_ARGS], {
-    cwd: WORK_DIR, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: WORK_DIR, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'], env: CHILD_ENV,
   });
   child.on('error', (err) => { stderr += `Could not start ${CLAUDE_BIN}: ${err.message}\n`; });
   child.stdin.on('error', () => {});

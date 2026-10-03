@@ -19,7 +19,8 @@ It plugs into what we already have:
 | [Discord-Bot-Buddy](https://github.com/EuphoriaxCode/Discord-Bot-Buddy) | Reads its dashboard API: bot status, unanswered questions (you answer from here), tickets, knowledge proposals, real user questions for the AI. Optional webhook for instant updates. |
 | [UEFN-Trends](https://github.com/EuphoriaxCode/UEFN-Trends) | Top trends, breakouts, memes, daily trend report, health of each source. "Track" and "Fresh trend report" buttons. |
 | [UEFN-MCP-Guidelines](https://github.com/EuphoriaxCode/UEFN-MCP-Guidelines) | Every build prompt tells Claude on the build PC to follow `MCP_RULES.md` first. |
-| Claude subscription | The build PC runs prompts (and by default also the daily analysis) with Claude Code. No API key needed. |
+| Claude subscription | The build PC runs the build queue with Claude Code, on your subscription (never API billing). |
+| OpenAI | The daily analysis (with web search) and the video captions run on the server with your OpenAI key, so they work when the build PC is off. A few cents per report. |
 
 ## Install
 

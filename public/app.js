@@ -618,7 +618,7 @@ async function ai(sub) {
   view.innerHTML = `
     <div class="spread" style="margin-bottom:16px">
       <div><h1 style="font-size:20px">Daily AI analysis</h1>
-      <div class="small muted">Every morning Claude reads all incoming data and searches the web for what people want.</div></div>
+      <div class="small muted">Every morning the AI reads all incoming data, combines it with the UEFN trends and searches the web for what people want.</div></div>
       ${running?.status === 'queued' ? `<div class="small muted" style="flex-basis:100%">Waiting for your build PC. The analysis runs there (on your Claude subscription) and starts as soon as the PC is on and the start file is running. See <a href="#build">Build queue</a>.</div>` : ''}
       <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? (running.status === 'queued' ? 'Waiting for the build PC…' : 'Running… (takes a few minutes)') : 'Run analysis now'}</button>
     </div>
@@ -641,7 +641,7 @@ async function ai(sub) {
   $('#run').onclick = async () => {
     try {
       const r = await api('/api/reports/run', { json: {} });
-      toast(r.mode === 'machine' ? 'Sent to the build PC (first in the queue). You get a Discord ping when it is ready.' : 'Analysis started. You get a Discord ping when it is ready.');
+      toast(r.mode === 'machine' ? 'Sent to the build PC (first in the queue). You get a Discord ping when it is ready.' : 'Analysis started on the server. It takes a minute or two, and you get a Discord ping when it is ready.');
       setTimeout(route, 1000);
     }
     catch (err) { toast(err.message); }
@@ -926,7 +926,7 @@ async function outgoing() {
         <div class="spread"><label style="flex:1">Caption (used everywhere unless overridden)
           <textarea name="caption" rows="3">${esc(prefill?.caption ?? '')}</textarea></label></div>
         <div class="row"><button type="button" id="ai-captions" ${settings.ai.configured ? '' : 'disabled'}>✎ Write captions per platform with AI</button>
-          ${settings.ai.configured ? '' : '<span class="small muted">Needs a Claude API key (Setup → AI)</span>'}</div>
+          ${settings.ai.configured ? '' : '<span class="small muted">Needs an OpenAI key (Setup → AI)</span>'}</div>
         <div id="per-platform" class="stack"></div>
         <label>Hashtags (added to the shared caption) <input name="hashtags" placeholder="#uefn #fortnite #fortnitecreative"></label>
         <div class="row">
@@ -1206,7 +1206,7 @@ const GROUP_CONNECTOR = { 'Discord bots (Bot Buddy)': 'buddy', 'UEFN Trends': 'u
 const GROUP_INTRO = {
   'Discord bots (Bot Buddy)': 'Shows bot status, lets you answer the questions the bots could not, close tickets and approve what the bots learn.',
   'UEFN Trends': 'Shows top trends, breakouts and the trend report, and feeds the daily AI.',
-  AI: 'The daily analysis that turns everything into ideas.',
+  AI: 'The daily analysis that turns everything into ideas. It runs on the server with your OpenAI key, so it also works when the build PC is off.',
   'Build PC': 'The PC that builds UEFN systems from the Build queue.',
   Socials: 'Views per video. Fill in only the platforms you want. Each one starts working as soon as you save.',
   Patreon: 'Tiers, members, monthly revenue and live sales.',

@@ -66,9 +66,12 @@ export async function checkServices() {
     setServiceStatus(s.name, s.kind, 'offline', `no heartbeat for ${config.heartbeatTimeoutMin}+ min`, s.label ?? undefined);
   }
 
-  const viaApi = config.aiMode === 'api' && !!config.anthropicKey;
-  setServiceStatus('ai', 'connector', 'online',
-    viaApi ? `Claude API · ${config.aiModel}` : 'runs on the build PC (Claude subscription)', 'Daily AI analysis');
+  const mode = config.aiMode;
+  const ready = mode === 'openai' ? !!config.openaiKey : mode === 'api' ? !!config.anthropicKey : true;
+  setServiceStatus('ai', 'connector', ready ? 'online' : 'not_configured',
+    mode === 'openai' ? (ready ? `OpenAI · ${config.openaiModel}` : 'Add your OpenAI key on the Setup page')
+      : mode === 'api' ? (ready ? `Claude API · ${config.aiModel}` : 'Add your Claude API key on the Setup page')
+        : 'runs on the build PC (Claude subscription)', 'Daily AI analysis');
   setServiceStatus('publisher', 'connector',
     config.publisher === 'ayrshare' ? (config.ayrshareKey ? 'online' : 'not_configured')
       : config.publisher === 'webhook' ? (config.publishWebhook ? 'online' : 'not_configured') : 'online',

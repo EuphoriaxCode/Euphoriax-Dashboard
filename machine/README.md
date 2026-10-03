@@ -8,13 +8,19 @@
    [UEFN-MCP-Guidelines/MCP_RULES.md](https://github.com/EuphoriaxCode/UEFN-MCP-Guidelines).
 3. It streams the log back to the dashboard live. Pressing **Cancel** on the dashboard stops the run.
 4. When it finishes, the dashboard marks the job done or failed and pings Discord (`NOTIFY_DISCORD_WEBHOOK`).
-5. The daily AI analysis also runs here (first in the queue) unless Setup → AI is set to "api". It only does web research
-   and never touches files or UEFN.
+5. The daily AI analysis runs on the server with OpenAI by default, so this PC only builds. (You can still choose "machine"
+   in Setup → AI to have the analysis run here too, first in the queue.)
 6. If Claude hits the subscription usage limit, the job goes back to the front of the queue and the worker waits
    `LIMIT_WAIT_MINUTES` (default 30) before it tries again. Leave the PC on and it keeps working through the queue.
 
 It sends a heartbeat every minute, so the dashboard shows the machine as online, building or offline.
 If the machine goes offline while it is building, the job is put back in the queue automatically.
+
+## Runs on your subscription, not on the API
+The worker starts `claude` in headless mode, which uses the account you logged in with (`claude`, then log in with your
+subscription). It deliberately **ignores `ANTHROPIC_API_KEY`** if that exists on the PC, because Claude Code would otherwise
+switch to pay-per-token API billing. A weekend of queued builds therefore only uses your subscription's normal usage, and
+when its limit is reached the job goes back to the front of the queue and the worker waits and continues by itself.
 
 ## Setup (Windows), the easy way
 

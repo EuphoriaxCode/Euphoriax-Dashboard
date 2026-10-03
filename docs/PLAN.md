@@ -18,7 +18,8 @@ One private page that answers three questions every morning:
   tickets, knowledge proposals, and the real questions people ask (fed to the daily AI).
 - **UEFN-Trends** → trends, breakouts, memes, the trend report and the health of each source. Buttons to track something or ask for a fresh report.
 - **UEFN-MCP-Guidelines** → the preamble of every build prompt.
-- **Claude subscription** → the build PC runs builds and the daily analysis, so no API key is needed.
+- **Claude subscription** → the build PC runs the build queue (weekend builds via the UEFN MCP) on the subscription, never on API billing.
+- **OpenAI** → the daily analysis and captions, on the server, so they also work when the build PC is off.
 
 ## Incoming zone
 - **Connectors** pull every hour: per-video views/likes/comments (YouTube, TikTok, Instagram, X), followers,

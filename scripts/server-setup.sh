@@ -125,6 +125,8 @@ if [ "$FIRST_RUN" = 1 ]; then
   if [ -z "$BOT_A_TOKEN" ] && [ -z "$BOT_B_TOKEN" ]; then set_env "$BUDDY_ENV" DISCORD_ENABLED false; fi
 
   set_env "$TRENDS_ENV" OPENAI_API_KEY "$OPENAI_KEY"
+  # The dashboard's daily analysis and video captions use the same key (it can also be changed on the Setup page).
+  [ -n "$OPENAI_KEY" ] && set_env "$DASH_ENV" OPENAI_API_KEY "$OPENAI_KEY"
   set_env "$TRENDS_ENV" DISCORD_WEBHOOK_URL "$TREND_WEBHOOK"
   [ -z "$OPENAI_KEY" ] && set_env "$TRENDS_ENV" AI_ENABLED false
 fi

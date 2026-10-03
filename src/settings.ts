@@ -18,8 +18,10 @@ export const SETTINGS: SettingDef[] = [
   { group: 'UEFN Trends', key: 'UEFN_TRENDS_URL', label: 'UEFN Trends address', placeholder: 'http://127.0.0.1:3100' },
   { group: 'UEFN Trends', key: 'UEFN_TRENDS_ADMIN_KEY', label: 'UEFN Trends API_ADMIN_KEY (optional)', secret: true, help: 'Lets you run a trend report and add watchlist items from here.' },
 
-  { group: 'AI', key: 'AI_MODE', label: 'Daily analysis runs on', options: ['machine', 'api'], help: 'machine = the build PC with your Claude subscription (no extra cost). api = Claude API key (works even when the PC is off).' },
-  { group: 'AI', key: 'ANTHROPIC_API_KEY', label: 'Claude API key (only for "api" mode and AI captions)', secret: true },
+  { group: 'AI', key: 'AI_ENGINE', label: 'Daily analysis runs on', options: ['openai', 'machine', 'api'], help: 'openai = on the server with your OpenAI key (default, works when the build PC is off). machine = the build PC with your Claude subscription. api = Claude API key. The build PC always builds with Claude.' },
+  { group: 'AI', key: 'OPENAI_API_KEY', label: 'OpenAI API key', secret: true, help: 'platform.openai.com/api-keys. Use a prepaid balance without auto-recharge. Also writes the captions for your videos.' },
+  { group: 'AI', key: 'OPENAI_MODEL', label: 'OpenAI model for the analysis', placeholder: 'gpt-5-mini', help: 'gpt-5-mini is cheap (a few cents per report). gpt-5 thinks harder and costs a few times more.' },
+  { group: 'AI', key: 'ANTHROPIC_API_KEY', label: 'Claude API key (only for the "api" option)', secret: true },
   { group: 'AI', key: 'DAILY_ANALYSIS_HOUR', label: 'Hour of the daily analysis (0-23)', placeholder: '7' },
 
   { group: 'Build PC', key: 'MACHINE_WORK_DIR', label: 'UEFN project folder on the build PC', placeholder: 'C:\\UEFN\\Euphoriax', help: 'Claude starts in this folder. Leave empty to use the folder where you put the start script.' },

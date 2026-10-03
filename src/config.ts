@@ -41,10 +41,14 @@ export const config = {
   get machineKey() { return env('MACHINE_KEY'); },
   get notifyWebhook() { return env('NOTIFY_DISCORD_WEBHOOK'); },
 
+  get openaiKey() { return env('OPENAI_API_KEY'); },
+  get openaiModel() { return env('OPENAI_MODEL', 'gpt-5-mini'); },
   get anthropicKey() { return env('ANTHROPIC_API_KEY'); },
   get aiModel() { return env('AI_MODEL', 'claude-opus-5-5'); },
-  /** api = Claude API key, machine = run on the build PC with the Claude subscription. */
-  get aiMode() { return env('AI_MODE') || (this.anthropicKey ? 'api' : 'machine'); },
+  /** Where the daily analysis runs: openai (default, on the server), machine (build PC, Claude subscription), api (Claude API key). */
+  get aiMode(): 'openai' | 'machine' | 'api' { const m = env('AI_ENGINE'); return m === 'machine' || m === 'api' ? m : 'openai'; },
+  /** Short texts (captions) use OpenAI when there is a key, otherwise Claude. */
+  get captionsEngine(): 'openai' | 'claude' | null { return this.openaiKey ? 'openai' : this.anthropicKey ? 'claude' : null; },
   get dailyHour() { return num('DAILY_ANALYSIS_HOUR', 7); },
 
   get youtube() { return { apiKey: env('YOUTUBE_API_KEY'), channelId: env('YOUTUBE_CHANNEL_ID') }; },

@@ -8,6 +8,7 @@ import { notify } from '../notify.js';
 import { buddyCache } from '../connectors/buddy.js';
 import { addJob } from '../jobs.js';
 import { claude, estimateCost, extractJson } from './client.js';
+import { openaiText } from './openai.js';
 
 export interface DailyReport {
   headline: string;
@@ -104,16 +105,23 @@ export function failReport(reportId: number, msg: string, who: string) {
 }
 
 export function analysisRunning() {
-  // Machine mode: a job that is waiting for the build PC counts, however old it is. Otherwise a build PC that stays off
-  // would collect one new analysis per day.
-  return !!db.prepare(`SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued', 'running')`).get()
-    || !!db.prepare(`SELECT 1 FROM reports WHERE status = 'running' AND ts > ?`).get(now() - 6 * 36e5);
+  // On the build PC a job that is still waiting counts, however old it is. Otherwise a PC that stays off would
+  // collect one new analysis per day.
+  if (config.aiMode === 'machine' && db.prepare(`SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued', 'running')`).get()) return true;
+  return !!db.prepare(`SELECT 1 FROM reports WHERE status = 'running' AND ts > ?`).get(now() - 6 * 36e5);
 }
 
-/** Starts today's analysis: via the Claude API, or as the first job on the build PC (Claude subscription). */
+/** Analysis jobs queued for the build PC while another engine is selected are leftovers: drop them. */
+function dropQueuedAnalysis() {
+  db.prepare(`UPDATE jobs SET status = 'cancelled', finished_at = ?, summary = 'Not needed: the analysis runs on the server now' WHERE kind = 'analysis' AND status = 'queued'`).run(now());
+  db.prepare(`UPDATE reports SET status = 'failed', error = 'Not run: the analysis moved to the server' WHERE status = 'queued'`).run();
+}
+
+/** Starts today's analysis on the engine chosen in Setup (OpenAI by default). */
 export async function runDailyAnalysis(who = 'scheduler') {
   if (running || analysisRunning()) throw new Error('analysis already running');
-  if (config.aiMode === 'api' && config.anthropicKey) return runViaApi(who);
+  if (config.aiMode === 'openai') { dropQueuedAnalysis(); return runViaOpenAI(who); }
+  if (config.aiMode === 'api') { dropQueuedAnalysis(); return runViaApi(who); }
   const reportId = Number(db.prepare(`INSERT INTO reports (ts, status) VALUES (?, 'queued')`).run(now()).lastInsertRowid);
   const prompt = `${SYSTEM}
 
@@ -128,6 +136,35 @@ Research what people are searching for, then write today's report.`;
   addJob('Daily AI analysis', prompt, who, null, true, 'analysis', reportId);
   logActivity('Daily AI analysis queued on the build PC', who);
   return reportId;
+}
+
+async function runViaOpenAI(who: string) {
+  running = true;
+  const reportId = Number(db.prepare(`INSERT INTO reports (ts, status) VALUES (?, 'running')`).run(now()).lastInsertRowid);
+  logActivity('Daily AI analysis started', who);
+  try {
+    const r = await openaiText({
+      system: SYSTEM,
+      user: `Today's snapshot:\n\n${JSON.stringify(buildSnapshot())}\n\nResearch what people are searching for, then write today's report.`,
+      webSearch: true,
+      effort: 'medium',
+      maxOutputTokens: 24_000,
+    });
+    // Without web access the report still works, from our own numbers; say so inside the report.
+    const text = r.searchUnavailable
+      ? r.text.replace(/```json\s*([\s\S]*?)```\s*$/, (_m, j) => {
+        try { const o = JSON.parse(j); o.marketSignals = ['(Web research was not available for this report; it is based on our own data and UEFN Trends only.)', ...(o.marketSignals ?? [])]; return '```json\n' + JSON.stringify(o) + '\n```'; } catch { return _m; }
+      })
+      : r.text;
+    await saveReport(reportId, text, r.costUsd, who);
+    logActivity(`Daily AI analysis cost about $${r.costUsd.toFixed(3)} (${r.model}, ${r.searches} web searches)`, who);
+    return reportId;
+  } catch (err) {
+    failReport(reportId, err instanceof Error ? err.message : String(err), who);
+    throw err;
+  } finally {
+    running = false;
+  }
 }
 
 async function runViaApi(who: string) {
