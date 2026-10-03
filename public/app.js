@@ -1184,7 +1184,7 @@ async function build(sub) {
   const machines = services.filter((s) => s.kind === 'machine');
   const running = jobs.filter((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
-  const done = jobs.filter((j) => !['running', 'queued'].includes(j.status));
+  const done = jobs.filter((j) => !['running', 'queued'].includes(j.status) && !(j.kind === 'analysis' && j.status === 'cancelled'));
   const openId = Number(sub) || running[0]?.id;
   const open = openId ? await api(`/api/jobs/${openId}`) : null;
 
