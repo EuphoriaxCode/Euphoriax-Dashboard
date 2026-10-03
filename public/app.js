@@ -653,12 +653,37 @@ function suggestKeywords(question) {
     .filter((w) => w.length > 2 && !K_STOP.has(w) && !seen.has(w) && seen.add(w)).slice(0, 6);
 }
 
-/** Turns "V: question / A: answer" blocks into entries. Accepts V:/Q: and A:. */
+/**
+ * Turns pasted blocks into entries. Per entry (blank line between entries):
+ *   V: question                       (Q: works too)
+ *   O: other phrasing | another one   (optional, "other ways to ask", separated by |)
+ *   C: category                       (optional)
+ *   K: keyword, keyword               (optional, made automatically when left out)
+ *   A: answer                         (last; may span several lines)
+ */
 function parseBulk(text) {
   const items = [];
-  for (const block of text.split(/\n\s*\n(?=\s*(?:V|Q)\s*:)/i)) {
-    const m = block.match(/^\s*(?:V|Q)\s*:\s*([\s\S]*?)\n\s*A\s*:\s*([\s\S]*)$/i);
-    if (m && m[1].trim().length >= 3 && m[2].trim()) items.push({ question: m[1].trim().replace(/\s*\n\s*/g, ' '), answer: m[2].trim(), keywords: suggestKeywords(m[1]) });
+  for (const block of text.replace(/\r/g, '').split(/\n\s*\n(?=\s*(?:V|Q)\s*:)/i)) {
+    const it = { question: '', answer: '', aliases: [], keywords: [], category: '' };
+    let field = null;
+    for (const line of block.split('\n')) {
+      const m = field === 'A' ? null : line.match(/^\s*(V|Q|O|C|K|A)\s*:\s?(.*)$/i);
+      if (m) {
+        field = m[1].toUpperCase() === 'Q' ? 'V' : m[1].toUpperCase();
+        const v = m[2].trim();
+        if (field === 'V') it.question = v;
+        else if (field === 'O') it.aliases.push(...v.split('|').map((x) => x.trim()).filter(Boolean));
+        else if (field === 'C') it.category = v;
+        else if (field === 'K') it.keywords.push(...v.split(',').map((x) => x.trim()).filter(Boolean));
+        else it.answer = v;
+      } else if (field === 'A') it.answer += `\n${line}`;
+      else if (field === 'V' && line.trim()) it.question += ` ${line.trim()}`;
+    }
+    it.answer = it.answer.trim();
+    if (it.question.trim().length < 3 || !it.answer) continue;
+    if (!it.keywords.length) it.keywords = suggestKeywords(it.question);
+    if (!it.category) delete it.category;
+    items.push(it);
   }
   return items;
 }
@@ -708,8 +733,8 @@ async function knowledge() {
       <div class="stack">
         <div class="card strong"><h2 style="margin-bottom:10px">Antwoord toevoegen</h2><div id="k-add">${knowledgeForm({}, d.categories)}</div></div>
         <div class="card"><h2 style="margin-bottom:6px">Meerdere tegelijk toevoegen</h2>
-          <p class="small muted" style="margin-top:0">Zet elke vraag met <span class="mono">V:</span> en elk antwoord met <span class="mono">A:</span>, met een lege regel tussen de vragen. Trefwoorden worden automatisch gemaakt.</p>
-          <textarea id="k-bulk" rows="8" placeholder="V: Wat kost het pet system?&#10;A: Het zit in de Creator tier ($10/maand) op Patreon.&#10;&#10;V: Hoe installeer ik een systeem?&#10;A: Sleep het device in je level, koppel de widget en push changes."></textarea>
+          <p class="small muted" style="margin-top:0">Per antwoord: <span class="mono">V:</span> vraag, optioneel <span class="mono">O:</span> andere manieren om te vragen (gescheiden door |) en <span class="mono">C:</span> categorie, en als laatste <span class="mono">A:</span> antwoord. Lege regel tussen de antwoorden. Trefwoorden worden automatisch gemaakt.</p>
+          <textarea id="k-bulk" rows="8" placeholder="V: Wat kost het pet system?&#10;O: prijs pet system | hoeveel kost het pet system&#10;C: patreon&#10;A: Het zit in de Creator tier ($10/maand) op Patreon.&#10;&#10;V: Hoe installeer ik een systeem?&#10;A: Sleep het device in je level, koppel de widget en push changes."></textarea>
           <div class="row" style="margin-top:8px"><button id="k-bulk-go" class="primary">Toevoegen</button><span id="k-bulk-info" class="small muted"></span></div>
         </div>
       </div>
