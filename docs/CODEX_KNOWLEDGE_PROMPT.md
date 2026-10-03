@@ -76,3 +76,212 @@ en gaat pas live nadat jij op **Goedkeuren** klikt. Daarvoor heeft Codex interne
 2. Beantwoord de TODO-lijst door Codex de ontbrekende feiten te geven en te vragen: "geef nu alleen de nieuwe entries".
 3. Dashboard → **Knowledge** → **Meerdere tegelijk toevoegen** → plak alleen de inhoud van het codeblok → **Toevoegen**.
 4. Test met het testvak op dezelfde pagina. Importeer elke batch maar één keer, anders staan er dubbele antwoorden in.
+## Founder-confirmed knowledge base — 3 October 2026
+
+This section supersedes conflicting claims in earlier drafts. Import only the entries inside the following text block. Product and membership prices are deliberately linked rather than hard-coded. Publishing this document does not itself import or activate the entries.
+
+```text
+V: how do I get the free files
+O: where are the free downloads | unlock free systems | get regular for downloads | hoe krijg ik de gratis bestanden
+C: community
+A: Invite three people to our Discord to automatically get the Regular role. You can then download the free files in <#1269978798212775987>.
+
+V: why haven't I received Regular after three invites
+O: invited three but no role | regular role delayed | still newbie after inviting friends | drie invites maar geen regular
+C: troubleshooting
+A: Invite tracking and role updates can take up to 30 minutes, though it's usually quicker. If you've invited three people and they're all still in the server, give it that time to update.
+
+V: can I get Regular without inviting people
+O: skip the three invites | other ways to unlock regular | free files without invites | regular krijgen zonder invites
+C: community
+A: Yes, you can get Regular through our Member subscription on Patreon or by becoming a booster of our Discord server.
+
+V: how do I get Regular after subscribing on Patreon
+O: paid on patreon but no regular | connect patreon to discord | claim member subscription role | patreon betaald maar geen rol
+C: setup
+A: After subscribing to Member, link your Patreon account to your Discord account to receive Regular automatically. Linking is required to get the role through your subscription.
+
+V: does the Member subscription include paid systems
+O: paid products included in membership | does member unlock everything | exclusive member systems | krijg ik betaalde systemen bij member
+C: patreon
+A: No, Member only unlocks the same free files available through three invites or server boosting. Paid systems aren't included.
+
+V: why subscribe if I can unlock the same files for free
+O: why pay for member | benefit of subscribing instead of invites | support euphoriax | waarom betalen voor gratis bestanden
+C: patreon
+A: Member is an optional way to support Euphoriax and unlock the free files without inviting people or boosting. You also get a role that places you higher in the Discord member list.
+
+V: where can I check membership prices and join
+O: member subscription price | patreon membership fee | sign up for member | hoeveel kost het member abonnement
+C: patreon
+A: Check our Patreon membership page for current pricing and to join: https://www.patreon.com/EuphoriaxPremium/membership
+
+V: where can I buy your products
+O: official euphoriax store | where do you sell systems | buy your products elsewhere | waar koop ik jullie producten
+C: patreon
+A: We only sell our products on Patreon. Browse the shop and current prices here: https://www.patreon.com/c/EuphoriaxPremium/shop
+
+V: are premium systems a one-time purchase
+O: do I pay monthly for a system | recurring payment for shop products | buy a system once | zijn premium systemen een eenmalige aankoop
+C: patreon
+A: Yes, premium systems in our Patreon shop are one-time purchases. Later updates to the system are included.
+
+V: do I need to pay again for an updated version
+O: are system updates included | update an old purchase | latest version after buying years ago | moet ik opnieuw betalen voor updates
+C: patreon
+A: No, when we release an update to a system you've bought, you can download the latest version without buying it again, even if your purchase was years ago.
+
+V: how do I download a purchased system or its latest version
+O: find my patreon purchase | redownload latest files | get an update from purchases | nieuwste versie van mijn aankoop downloaden
+C: setup
+A: Sign in to the Patreon account you used to buy the system, open your purchases and download it there. Downloading it again gives you the latest version; there may not be a separate label saying an update is available.
+
+V: where do you announce system updates
+O: system update announcements | how will I know an update is out | product update news | waar kondigen jullie updates aan
+C: general
+A: We announce system updates on our social channels. We sometimes also post an announcement on Patreon.
+
+V: what products do you currently sell
+O: current product catalog | which systems are for sale | available paid systems | welke systemen verkopen jullie
+C: products
+A: Our Patreon shop sells the Pillars System, Custom Battle Pass, Piece Control / Speed Realistics System, Box PVP Template with Superpowers, Color Switch, Infinity Zone Wars, Ranked System and Stretched Resolution.
+
+V: where can I see how a system works before buying
+O: preview a system before purchase | system demonstration videos | watch product gameplay | systeem bekijken voor aankoop
+C: products
+A: Each system we publish has a YouTube video showing it. Watching that video is the best place to start: https://www.youtube.com/@euphoriax_official
+
+V: what does the Pillars System do
+O: pillars system features | make a custom pillars map | pillar template gameplay | wat kan het pillars systeem
+C: products
+A: It lets you build a custom Pillars map in Fortnite with configurable rounds, events and a win cinematic. You can customize the Pillar System Device to fit your map.
+
+V: what comes with the Pillars System purchase
+O: pillars pack contents | files included with pillars | pillars documentation and support | wat krijg ik bij aankoop van pillars
+C: products
+A: You get the Verse code, a private explanation video and support access.
+
+V: which events can I use in the Pillars System
+O: pillars custom events | rising lava and double damage | pillars random items | welke events kan ik toevoegen
+C: products
+A: It supports custom events such as Rising Lava and Double Damage, plus built-in On Game Start Item and Random Item events. The modular setup lets you add as many events as you want.
+
+V: what storm options does the Pillars System have
+O: pillars square storm | classic storm option | change storm type in pillars | welke storm kan ik gebruiken bij pillars
+C: products
+A: You can use a custom square storm or a classic storm system.
+
+V: does the Pillars System include event UI
+O: pillars event interface | item timer display | pillars ui included | heeft pillars een event interface
+C: products
+A: It includes custom UI for every event and timers when players receive items.
+
+V: where can I watch the full Pillars System showcase
+O: pillars showcase video | see the pillar system in action | full pillars demo | pillars demonstratie bekijken
+C: links
+A: Watch the full system showcase here: https://youtu.be/ToIDKCCiMQk
+
+V: how much does the Pillars System cost
+O: pillars price | pillar template cost | buy pillars system | hoeveel kost het pillars systeem
+C: patreon
+A: You can find the current Pillars System price in our Patreon shop: https://www.patreon.com/c/EuphoriaxPremium/shop
+
+V: can I modify a purchased system
+O: edit purchased verse code | customize your systems | change a system I bought | mag ik gekochte systemen aanpassen
+C: products
+A: Yes, you can modify the systems you buy from us to suit your own maps.
+
+V: can I use a purchased system in multiple monetized maps
+O: reuse a system across my maps | commercial use allowed | earn money with your systems | gebruiken in meerdere eigen maps
+C: products
+A: Yes, you can use a purchased system in multiple maps of your own, including maps you earn money from.
+
+V: can I resell your systems as templates
+O: resell a purchased system | sell your code as a template | template resale allowed | mag ik jullie systemen doorverkopen
+C: products
+A: No, you can't resell our systems as templates. You can modify them and use them in your own Fortnite maps, including maps you earn money from.
+
+V: can I send the purchased files to friends
+O: share system files with friends | give a friend my download | forward purchased files | mag ik bestanden doorsturen naar vrienden
+C: products
+A: No, you can't pass the purchased system files on to friends.
+
+V: where can I request a refund
+O: request money back | submit a refund request | refund through patreon | waar vraag ik een terugbetaling aan
+C: patreon
+A: You can submit a refund request through Patreon. Submitting a request doesn't guarantee it will be approved.
+
+V: what language should I use in the server
+O: english only server | can I speak Dutch here | allowed chat language | mag ik nederlands praten
+C: community
+A: Please use English when communicating in our Discord server.
+
+V: can I advertise my services in your Discord
+O: self promo allowed | advertise commissions | promote my project here | mag ik reclame maken
+C: community
+A: Spam and self-promotion are not allowed and will be removed. That includes messages advertising services and asking members to DM you for work.
+
+V: why do I need to invite people for free files
+O: why three invites | reason for invite requirement | why are downloads invite locked | waarom moet ik mensen uitnodigen
+C: community
+A: The invite requirement helps our Discord community grow and encourages people to take part instead of only grabbing files.
+
+V: who is Euphoriax
+O: who are you guys | about euphoriax | who makes these systems | wie zijn jullie
+C: general
+A: We're two students building UEFN systems, Fortnite maps and tools with AI. We sell our products on Patreon and run a Discord community.
+
+V: do you work with engines other than UEFN
+O: what platform do you build for | other game engines | euphoriax development focus | werken jullie alleen met uefn
+C: general
+A: We currently focus entirely on UEFN, Unreal Editor for Fortnite.
+
+V: what do your YouTube videos cover
+O: what are your tutorials about | euphoriax video topics | do you explain system settings | wat leggen jullie uit op youtube
+C: general
+A: Our YouTube videos mainly cover UEFN systems. We explain how systems work and their configuration options, with tutorials for free systems and showcases of paid ones.
+
+V: what are your systems designed to help with
+O: purpose of your systems | why add your systems to my map | player engagement systems | waarom jullie systemen gebruiken
+C: products
+A: We design our systems to help creators keep players engaged and encourage longer play sessions. For example, our Ranked System adds competition to give players a reason to keep playing.
+
+V: which social platforms do you post on
+O: where do you post shorts | euphoriax social platforms | which socials do you use | op welke socials zitten jullie
+C: general
+A: We post on YouTube, TikTok, X and Instagram.
+
+V: what is your website
+O: euphoriax website link | official site | homepage address | wat is jullie website
+C: links
+A: Our website is https://euphoriax.net
+
+V: how do I compile my Verse code
+O: build verse code | compile my script in uefn | check verse compilation | hoe compileer ik verse
+C: setup
+A: In UEFN, open the Verse menu and select Build Verse Code to compile your scripts.
+
+V: why does my Verse code compile but fail during gameplay
+O: verse builds but breaks in game | runtime error after successful build | script compiles but stops | verse compileert maar werkt niet
+C: troubleshooting
+A: A successful build doesn't rule out runtime errors that happen while the game is running. Share the exact error and what you were doing when it happened so we can narrow down the cause.
+```
+
+### Open questions — do not import as answers
+
+- Final refund eligibility, including change-of-mind requests after download.
+- Sharing within a development team; sharing purchased files with friends and template resale are not allowed.
+- The planned ticket channel and exact support steps, plus missing-role escalation after 30 minutes.
+- Remaining product details, installation instructions, supported UEFN versions and known limitations.
+- Official Discord invite, remaining social links, business contact and feature-request route.
+
+### Sources and corrections
+
+Company facts come from the founders' conversation on 3 October 2026 and their supplied Pillars description. Founder corrections take precedence over older public listings. The weekly Patreon help-session claim and role-loss answer were removed. Member unlocks the same free files as invites or boosting, plus a higher Discord member-list role; it does not include paid systems. No fixed payout rate or guaranteed Discover placement is claimed.
+
+- Shop: https://www.patreon.com/c/EuphoriaxPremium/shop
+- Membership: https://www.patreon.com/EuphoriaxPremium/membership
+- YouTube: https://www.youtube.com/@euphoriax_official
+- Pillars showcase: https://youtu.be/ToIDKCCiMQk
+- Verse compilation: https://dev.epicgames.com/documentation/fortnite/modify-and-run-your-first-verse-program-in-unreal-editor-for-fortnite?lang=en-US
+- Verse troubleshooting: https://dev.epicgames.com/documentation/en-us/fortnite/debugging-and-troubleshooting-in-verse
