@@ -27,7 +27,7 @@ export const SETTINGS: SettingDef[] = [
   { group: 'Build PC', key: 'MACHINE_WORK_DIR', label: 'UEFN project folder on the build PC', placeholder: 'C:\\UEFN\\Euphoriax', help: 'Claude starts in this folder. Leave empty to use the folder where you put the start script.' },
 
   { group: 'Socials', key: 'YOUTUBE_API_KEY', label: 'YouTube API key', secret: true, help: 'console.cloud.google.com → enable "YouTube Data API v3" → Credentials → API key.' },
-  { group: 'Socials', key: 'YOUTUBE_CHANNEL_ID', label: 'YouTube channel ID', placeholder: 'UC…', help: 'youtube.com/account_advanced' },
+  { group: 'Socials', key: 'YOUTUBE_CHANNEL_ID', label: 'YouTube channel (@handle, link or ID)', placeholder: '@euphoriax_official', help: 'Your @handle, the link to your channel, or the ID that starts with UC (youtube.com/account_advanced).' },
   { group: 'Socials', key: 'TIKTOK_CLIENT_KEY', label: 'TikTok client key' },
   { group: 'Socials', key: 'TIKTOK_CLIENT_SECRET', label: 'TikTok client secret', secret: true },
   { group: 'Socials', key: 'TIKTOK_REFRESH_TOKEN', label: 'TikTok refresh token', secret: true, help: 'From the TikTok for Developers login flow (scopes user.info.stats, video.list).' },
