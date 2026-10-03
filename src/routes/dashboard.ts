@@ -19,7 +19,7 @@ import { addJob, moveJob } from '../jobs.js';
 import { checkServices, httpServices } from '../monitor.js';
 import { ACTIONS, controlState, requestAction, setAutoUpdate } from '../serverControl.js';
 import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
-import { analysisRunning, runDailyAnalysis } from '../ai/daily.js';
+import { analysisRunning, dropQueuedAnalysis, runDailyAnalysis } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
 
 const idStr = (req: FastifyRequest) => encodeURIComponent((req.params as { id: string }).id);
@@ -264,7 +264,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get('/api/trends', async () => ({ top: trends('top'), latest: trends('latest'), report: trends('report'), status: trends('status') }));
 
   // ---------- AI ----------
-  app.get('/api/reports', async () => db.prepare(`SELECT id, ts, status, summary, error, cost_usd FROM reports ORDER BY ts DESC LIMIT 60`).all());
+  app.get('/api/reports', async () => {
+    if (config.aiMode !== 'machine') dropQueuedAnalysis();   // a leftover from when the build PC was the engine
+    return db.prepare(`SELECT id, ts, status, summary, error, cost_usd FROM reports ORDER BY ts DESC LIMIT 60`).all();
+  });
   app.get('/api/reports/:id', async (req, reply) => {
     const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(idParam(req)) as any;
     if (!r) return reply.code(404).send({ error: 'not found' });

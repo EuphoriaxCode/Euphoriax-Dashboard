@@ -113,7 +113,7 @@ export function analysisRunning() {
 }
 
 /** Analysis jobs queued for the build PC while another engine is selected are leftovers: drop them. */
-function dropQueuedAnalysis() {
+export function dropQueuedAnalysis() {
   db.prepare(`UPDATE jobs SET status = 'cancelled', finished_at = ?, summary = 'Not needed: the analysis runs on the server now' WHERE kind = 'analysis' AND status = 'queued'`).run(now());
   db.prepare(`UPDATE reports SET status = 'failed', error = 'Not run: the analysis moved to the server' WHERE status = 'queued'`).run();
 }
