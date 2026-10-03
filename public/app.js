@@ -116,7 +116,7 @@ $('#refresh').onclick = async (e) => {
 };
 
 // ---------- router ----------
-const pages = { overview, incoming, ai, knowledge, outgoing, build, status, setup };
+const pages = { overview, incoming, trends, ai, knowledge, outgoing, build, status, setup };
 let timer = null;
 
 async function route() {
@@ -539,6 +539,11 @@ async function discordPage(el) {
   bindInbox(() => discordPage(el));
 }
 
+async function trends() {
+  view.innerHTML = '<div id="sub"></div>';
+  await trendsPage($('#sub'));
+}
+
 async function trendsPage(el) {
   const d = await api('/api/trends');
   const top = d.top?.data;
@@ -606,7 +611,7 @@ async function ai(sub) {
   const reports = await api('/api/reports');
   const id = sub ? Number(sub) : reports.find((r) => r.status === 'done')?.id;
   const r = id ? await api(`/api/reports/${id}`) : null;
-  const running = reports.find((x) => x.status === 'running');
+  const running = reports.find((x) => x.status === 'running' || x.status === 'queued');
   const j = r?.json;
   const list = (title, items) => `<div class="card"><h2 style="margin-bottom:6px">${title}</h2>${items?.length ? `<ul class="bullets">${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : empty('-')}</div>`;
 
@@ -614,6 +619,7 @@ async function ai(sub) {
     <div class="spread" style="margin-bottom:16px">
       <div><h1 style="font-size:20px">Daily AI analysis</h1>
       <div class="small muted">Every morning Claude reads all incoming data and searches the web for what people want.</div></div>
+      ${running?.status === 'queued' ? `<div class="small muted" style="flex-basis:100%">Waiting for your build PC. The analysis runs there (on your Claude subscription) and starts as soon as the PC is on and the start file is running. See <a href="#build">Build queue</a>.</div>` : ''}
       <button class="primary" id="run" ${running ? 'disabled' : ''}>${running ? (running.status === 'queued' ? 'Waiting for the build PC…' : 'Running… (takes a few minutes)') : 'Run analysis now'}</button>
     </div>
     <div class="grid g3">

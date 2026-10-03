@@ -104,7 +104,10 @@ export function failReport(reportId: number, msg: string, who: string) {
 }
 
 export function analysisRunning() {
-  return !!db.prepare(`SELECT 1 FROM reports WHERE status IN ('running', 'queued') AND ts > ?`).get(now() - 6 * 36e5);
+  // Machine mode: a job that is waiting for the build PC counts, however old it is. Otherwise a build PC that stays off
+  // would collect one new analysis per day.
+  return !!db.prepare(`SELECT 1 FROM jobs WHERE kind = 'analysis' AND status IN ('queued', 'running')`).get()
+    || !!db.prepare(`SELECT 1 FROM reports WHERE status = 'running' AND ts > ?`).get(now() - 6 * 36e5);
 }
 
 /** Starts today's analysis: via the Claude API, or as the first job on the build PC (Claude subscription). */
