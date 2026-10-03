@@ -50,10 +50,11 @@ function toast(msg) {
   toast.t = setTimeout(() => (el.hidden = true), 3500);
 }
 
-const statusBadge = (s) => {
-  const icon = { online: '●', degraded: '◐', offline: '✕', unknown: '?', not_configured: '–' }[s] ?? '?';
-  const label = { not_configured: 'not set up' }[s] ?? s;
-  return `<span class="status ${esc(s)}">${icon} ${esc(label)}</span>`;
+/** Green pulsing dot when online, red when not. The word stays next to it so it never relies on colour alone. */
+const dot = (s) => `<i class="dot ${esc(s)}"></i>`;
+const statusBadge = (s, label, size = '') => {
+  const text = label ?? { not_configured: 'not set up', degraded: 'slow', offline: 'offline' }[s] ?? s;
+  return `<span class="status ${esc(s)} ${size}">${dot(s)}${esc(text)}</span>`;
 };
 
 function bar(value, max, tip) {
@@ -136,7 +137,7 @@ async function updateHealthPill() {
     const svcs = await api('/api/services');
     const down = svcs.filter((s) => s.status === 'offline');
     const pill = $('#health-pill');
-    pill.textContent = down.length ? `✕ ${down.length} offline` : '● all systems online';
+    pill.innerHTML = `${dot(down.length ? 'offline' : 'online')}${down.length ? `${down.length} offline` : 'all systems online'}`;
     pill.className = 'pill' + (down.length ? ' bad' : '');
     pill.title = down.map((s) => s.label ?? s.name).join(', ');
   } catch { /* ignore */ }
@@ -173,7 +174,7 @@ async function overview() {
   view.innerHTML = `
     ${inboxHtml(d)}
     ${down.length ? `<div class="card strong" style="margin-bottom:16px">
-      <div class="spread"><strong>✕ ${down.length} service${down.length > 1 ? 's' : ''} offline:</strong>
+      <div class="spread"><strong style="display:inline-flex;align-items:center">${dot('offline')}${down.length} service${down.length > 1 ? 's' : ''} offline:</strong>
       <span>${down.map((s) => esc(s.label ?? s.name)).join(' · ')}</span><a href="#status">See status →</a></div></div>` : ''}
 
     <div class="kpis">
@@ -518,7 +519,7 @@ async function discordPage(el) {
       ${kpi('Open tickets', String(d.tickets.length), '')}
       ${kpi('Spam removed today', fmt(st.moderationActionsToday), '')}
       ${kpi('Bot AI today', '$' + (st.ai?.estimatedCostToday ?? 0).toFixed(2), `${fmt(st.ai?.callsToday)} calls`)}
-      ${bots.map(([k, b]) => kpi(d.personas?.find((p) => p.id === (k === 'founderA' ? 'FOUNDER_A' : 'FOUNDER_B'))?.displayName ?? k, b.connected ? '● online' : '✕ offline', b.connected ? `${b.latencyMs} ms` : 'disconnected')).join('')}
+      ${bots.map(([k, b]) => kpi(d.personas?.find((p) => p.id === (k === 'founderA' ? 'FOUNDER_A' : 'FOUNDER_B'))?.displayName ?? k, statusBadge(b.connected ? 'online' : 'offline', undefined, 'lg'), b.connected ? `${b.latencyMs} ms` : 'disconnected')).join('')}
     </div>
     <div class="grid g2">
       <div class="card"><h2 style="margin-bottom:8px">Questions the bots couldn't answer</h2>
@@ -835,10 +836,10 @@ async function knowledge() {
     try {
       const matches = await api('/api/knowledge/search', { json: { query: new FormData(e.target).get('query') } });
       const top = matches[0];
-      const verdict = !top || top.score < 0.3 ? ['✕ Niets gevonden', 'De bot zegt "ik vraag het na" en zet de vraag bij Needs you. Voeg dit antwoord toe.']
-        : top.directAnswerEligible ? ['● Antwoordt meteen', 'De bot stuurt dit antwoord letterlijk, zonder AI.']
-          : top.score >= 0.45 ? ['● Antwoordt met AI', 'De AI formuleert een antwoord op basis van dit item.']
-            : ['◐ Te zwak', 'De bot durft hier niet op te antwoorden. Voeg "zo kan het ook gevraagd worden" of trefwoorden toe.'];
+      const verdict = !top || top.score < 0.3 ? [`${dot('offline')}Niets gevonden`, 'De bot zegt "ik vraag het na" en zet de vraag bij Needs you. Voeg dit antwoord toe.']
+        : top.directAnswerEligible ? [`${dot('online')}Antwoordt meteen`, 'De bot stuurt dit antwoord letterlijk, zonder AI.']
+          : top.score >= 0.45 ? [`${dot('online')}Antwoordt met AI`, 'De AI formuleert een antwoord op basis van dit item.']
+            : [`${dot('degraded')}Te zwak`, 'De bot durft hier niet op te antwoorden. Voeg "zo kan het ook gevraagd worden" of trefwoorden toe.'];
       out.innerHTML = `<div class="quote"><strong>${verdict[0]}</strong><div>${verdict[1]}</div></div>` + matches.slice(0, 4).map((m) =>
         `<div style="margin-top:6px"><span class="tag ${m.score >= 0.45 ? 'dark' : ''}">${Math.round(m.score * 100)}%</span><span class="tag">${esc(m.matchedBy)}</span> <strong>${esc(m.item.question)}</strong></div>`).join('');
     } catch (err) { out.textContent = err.message; }
@@ -1094,14 +1095,17 @@ function jobRow(j, isRunning, i = 0, n = 0) {
 async function status() {
   const svcs = await api('/api/services');
   const groups = { bot: 'Discord bots', machine: 'Build PC', trends: 'UEFN Trends sources', heartbeat: 'Other bots (heartbeats)', http: 'Websites & APIs', connector: 'Connections' };
-  view.innerHTML = Object.entries(groups).map(([kind, title]) => {
-    const rows = svcs.filter((s) => s.kind === kind);
-    return `<div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:8px">${title}</h2>
-      ${rows.length ? `<div class="table-wrap"><table><tr><th>Service</th><th>Status</th><th>Detail</th><th>Last seen</th><th>Status since</th></tr>
-        ${rows.map((s) => `<tr><td><strong>${esc(s.label ?? s.name)}</strong>${s.url ? `<div class="small muted">${esc(s.url)}</div>` : ''}</td>
-          <td>${statusBadge(s.status)}</td><td class="small">${esc(s.detail ?? '')}</td><td class="small">${ago(s.last_seen)}</td><td class="small">${ago(s.changed_at)}</td></tr>`).join('')}
-      </table></div>` : empty('None yet.')}</div>`;
-  }).join('');
+  const down = svcs.filter((x) => x.status === 'offline').length;
+  view.innerHTML = `<div class="spread" style="margin-bottom:12px"><span class="status lg ${down ? 'offline' : 'online'}">${dot(down ? 'offline' : 'online')}${down ? `${down} offline` : 'Everything is online'}</span></div>` +
+    Object.entries(groups).map(([kind, title]) => {
+      const rows = svcs.filter((x) => x.kind === kind);
+      if (!rows.length) return '';
+      return `<div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:8px">${title}</h2>
+        <div class="table-wrap"><table><tr><th>Service</th><th>Status</th><th>Detail</th><th>Last seen</th><th>Status since</th></tr>
+          ${rows.map((x) => `<tr><td><strong>${esc(x.label ?? x.name)}</strong>${x.url ? `<div class="small muted">${esc(x.url)}</div>` : ''}</td>
+            <td>${statusBadge(x.status)}</td><td class="small">${esc(x.detail ?? '')}</td><td class="small">${ago(x.last_seen)}</td><td class="small">${ago(x.changed_at)}</td></tr>`).join('')}
+        </table></div></div>`;
+    }).join('');
   timer = setInterval(() => { if (!document.hidden) status().catch(() => {}); }, 30_000);
 }
 
@@ -1136,7 +1140,7 @@ async function setup() {
       <button class="primary" id="save-top">Save</button></div>
     <form id="settings-form" class="grid g2">
       ${groups.map((g) => `<div class="card">
-        <div class="spread"><h2>${esc(g)}</h2>${GROUP_CONNECTOR[g] ? `<span class="row"><span id="test-${GROUP_CONNECTOR[g]}">${conn[GROUP_CONNECTOR[g]]?.configured ? statusBadge('online').replace('online', 'filled in') : statusBadge('not_configured')}</span>
+        <div class="spread"><h2>${esc(g)}</h2>${GROUP_CONNECTOR[g] ? `<span class="row"><span id="test-${GROUP_CONNECTOR[g]}">${conn[GROUP_CONNECTOR[g]]?.configured ? statusBadge('online', 'filled in') : statusBadge('not_configured')}</span>
           <button type="button" data-test="${GROUP_CONNECTOR[g]}">Test</button></span>` : ''}</div>
         <p class="small muted" style="margin-top:4px">${esc(GROUP_INTRO[g] ?? '')}</p>
         ${s.fields.filter((f) => f.group === g).map(field).join('')}

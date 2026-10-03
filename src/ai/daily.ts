@@ -70,7 +70,7 @@ export function buildSnapshot() {
     discordKeywords7d: signalKeywords(7, 30),
     discordMessages48h: recentSignals(2, 120).map((s) => `[${s.kind}] ${s.text.slice(0, 280)}`),
     uefnTrends: top ? { topTrends: top.topTrends?.slice(0, 10), breakouts: top.breakouts?.slice(0, 8), memes: top.memes?.slice(0, 5) } : null,
-    uefnTrendsReport: trends('report')?.data ?? null,
+    uefnTrendsReport: (() => { const { discordText: _dup, ...rest } = (trends('report')?.data ?? {}) as Record<string, unknown>; return Object.keys(rest).length ? rest : null; })(),
     discordBots: (() => {
       const b = buddyCache();
       return b ? {
