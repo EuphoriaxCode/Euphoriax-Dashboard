@@ -119,6 +119,12 @@ $('#refresh').onclick = async (e) => {
 const pages = { overview, incoming, trends, ai, knowledge, outgoing, build, status, setup };
 let timer = null;
 
+// Timer-driven refreshes replace the whole view; keep the reader's scroll position.
+async function keepScroll(fn) {
+  const y = window.scrollY;
+  try { await fn(); } finally { window.scrollTo(0, y); }
+}
+
 async function route() {
   clearInterval(timer);
   const [name, sub] = (location.hash.slice(1) || 'overview').split('/');
@@ -259,7 +265,7 @@ async function overview() {
   // Don't refresh while someone is typing an answer.
   timer = setInterval(() => {
     const typing = document.activeElement?.tagName === 'TEXTAREA' && document.activeElement.value;
-    if (!document.hidden && !typing && location.hash.replace('#', '') in { '': 1, overview: 1 }) overview().catch(() => {});
+    if (!document.hidden && !typing && location.hash.replace('#', '') in { '': 1, overview: 1 }) keepScroll(overview).catch(() => {});
   }, 60_000);
 }
 
@@ -646,7 +652,7 @@ async function ai(sub) {
     }
     catch (err) { toast(err.message); }
   };
-  if (running) timer = setInterval(() => ai(sub).catch(() => {}), 15_000);
+  if (running) timer = setInterval(() => keepScroll(() => ai(sub)).catch(() => {}), 15_000);
 }
 
 // ======================================================================
@@ -1086,7 +1092,7 @@ async function build(sub) {
   });
   const log = $('#joblog');
   if (log) log.scrollTop = log.scrollHeight;
-  if (running.length) timer = setInterval(() => { if (!document.hidden) build(sub).catch(() => {}); }, 8000);
+  if (running.length) timer = setInterval(() => { if (!document.hidden) keepScroll(() => build(sub)).catch(() => {}); }, 8000);
 }
 
 function jobRow(j, isRunning, i = 0, n = 0) {
@@ -1115,7 +1121,7 @@ async function status() {
         </table></div></div>`;
     }).join('');
   serverPanel($('#server-box'));
-  timer = setInterval(() => { if (!document.hidden && !$('#server-box [data-busy]')) status().catch(() => {}); }, 30_000);
+  timer = setInterval(() => { if (!document.hidden && !$('#server-box [data-busy]')) keepScroll(status).catch(() => {}); }, 30_000);
 }
 
 // ---------- Server: Update / Restart buttons ----------
