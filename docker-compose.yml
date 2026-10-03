@@ -9,6 +9,9 @@ services:
     restart: unless-stopped
     init: true
     network_mode: host
+    env_file:
+      - path: .env        # written by scripts/server-setup.sh (keys for Bot Buddy / UEFN Trends)
+        required: false
     environment:
       NODE_ENV: production
       PORT: "3200"

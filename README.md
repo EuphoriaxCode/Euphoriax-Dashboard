@@ -19,7 +19,11 @@ It plugs into what we already have:
 | [UEFN-MCP-Guidelines](https://github.com/EuphoriaxCode/UEFN-MCP-Guidelines) | Every build prompt tells Claude on the build PC to follow `MCP_RULES.md` first. |
 | Claude subscription | The build PC runs prompts (and by default also the daily analysis) with Claude Code. No API key needed. |
 
-## Install (on the VPS where Bot Buddy and UEFN Trends run)
+## Install
+
+**Step by step in Dutch (Hetzner + Porkbun, one command): [docs/HETZNER.md](docs/HETZNER.md).**
+
+### Manual install (on the VPS where Bot Buddy and UEFN Trends run)
 
 ```bash
 git clone https://github.com/EuphoriaxCode/Euphoriax-Dashboard && cd Euphoriax-Dashboard
