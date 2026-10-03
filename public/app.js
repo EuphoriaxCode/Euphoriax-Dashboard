@@ -119,6 +119,9 @@ $('#refresh').onclick = async (e) => {
 const pages = { overview, incoming, trends, ai, knowledge, outgoing, build, status, setup };
 let timer = null;
 
+// A page that was still loading when you clicked another tab must not draw over it (or start its timer).
+const pageName = () => (location.hash.slice(1) || 'overview').split('/')[0];
+
 // Timer-driven refreshes replace the whole view; keep the reader's scroll position.
 async function keepScroll(fn) {
   const y = window.scrollY;
@@ -141,6 +144,7 @@ window.addEventListener('hashchange', route);
 async function updateHealthPill() {
   try {
     const svcs = await api('/api/services');
+  if (pageName() !== 'status') return;
     const down = svcs.filter((s) => s.status === 'offline');
     const pill = $('#health-pill');
     pill.innerHTML = `${dot(down.length ? 'offline' : 'online')}${down.length ? `${down.length} offline` : 'all systems online'}`;
@@ -163,6 +167,7 @@ start();
 // ======================================================================
 async function overview() {
   const d = await api('/api/overview');
+  if (pageName() !== 'overview') return;
   const m = d.metrics;
   const totalViews7 = Object.values(d.views7d).reduce((a, p) => a + p.gained, 0);
   const totalViews1 = Object.values(d.views1d).reduce((a, p) => a + p.gained, 0);
@@ -615,6 +620,7 @@ function sparkCard(title, points, isMoney) {
 // ======================================================================
 async function ai(sub) {
   const reports = await api('/api/reports');
+  if (pageName() !== 'ai') return;
   const id = sub ? Number(sub) : reports.find((r) => r.status === 'done')?.id;
   const r = id ? await api(`/api/reports/${id}`) : null;
   const running = reports.find((x) => x.status === 'running' || x.status === 'queued');
@@ -1026,6 +1032,7 @@ function postRow(p) {
 // ======================================================================
 async function build(sub) {
   const [jobs, services] = await Promise.all([api('/api/jobs'), api('/api/services')]);
+  if (pageName() !== 'build') return;
   const machines = services.filter((s) => s.kind === 'machine');
   const running = jobs.filter((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
