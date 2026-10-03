@@ -49,6 +49,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         questionsTotal: b?.unresolved.length ?? 0,
         proposals: (b?.proposals ?? []).slice(0, 5),
         tickets: b?.tickets.length ?? 0,
+        drafts: (db.prepare('SELECT COUNT(*) n FROM kb_drafts').get() as { n: number }).n,
         failedBuilds: db.prepare(`SELECT id, title, summary FROM jobs WHERE status = 'failed' AND kind = 'build' AND finished_at > ?`).all(now() - 2 * 864e5),
         postsToHandle: db.prepare(`SELECT id, title, status, platforms FROM posts WHERE status IN ('manual', 'failed', 'partial') AND scheduled_at > ?`).all(now() - 7 * 864e5),
       },
@@ -125,11 +126,39 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return {
       total: all.total,
       active: active.total,
+      drafts: (db.prepare('SELECT COUNT(*) n FROM kb_drafts').get() as { n: number }).n,
       categories: [...new Set([...cats.items.map((i: any) => i.category)])].sort(),
       gaps: (b?.unresolved ?? []).slice(0, 15).map((q: any) => ({ id: q.id, question: q.question, username: q.username, reason: q.reason, createdAt: q.createdAt })),
       topWords: questionKeywords(14, 12),
     };
   });
+  // Drafts pushed in by tools: review, then approve into Bot Buddy.
+  const draftRow = (r: any) => ({ ...r, aliases: JSON.parse(r.aliases), keywords: JSON.parse(r.keywords) });
+  app.get('/api/knowledge/drafts', async () => (db.prepare('SELECT * FROM kb_drafts ORDER BY id').all() as any[]).map(draftRow));
+  app.post('/api/knowledge/drafts/approve', async (req) => {
+    const { ids } = (req.body ?? {}) as { ids?: number[] };
+    const rows = (ids?.length
+      ? db.prepare(`SELECT * FROM kb_drafts WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`).all(...ids)
+      : db.prepare('SELECT * FROM kb_drafts ORDER BY id').all()) as any[];
+    let added = 0;
+    const errors: string[] = [];
+    for (const r of rows) {
+      const d = draftRow(r);
+      try {
+        await buddy('/knowledge', { method: 'POST', body: { question: d.question, answer: d.answer, aliases: d.aliases, keywords: d.keywords, ...(d.category ? { category: d.category } : {}), createdBy: who(req) } });
+        db.prepare('DELETE FROM kb_drafts WHERE id = ?').run(d.id);
+        added++;
+      } catch (err) { errors.push(`${String(d.question).slice(0, 50)}: ${err instanceof Error ? err.message : err}`); }
+    }
+    if (added) logActivity(`Approved ${added} bot answers`, who(req));
+    return { added, errors };
+  });
+  app.delete('/api/knowledge/drafts/:id', async (req) => {
+    db.prepare('DELETE FROM kb_drafts WHERE id = ?').run(Number((req.params as { id: string }).id));
+    return { ok: true };
+  });
+  app.post('/api/knowledge/drafts/clear', async () => { db.prepare('DELETE FROM kb_drafts').run(); return { ok: true }; });
+
   app.post('/api/knowledge', async (req, reply) => {
     const b = req.body as Record<string, unknown>;
     const item = await buddy('/knowledge', { method: 'POST', body: { ...b, createdBy: who(req) } });

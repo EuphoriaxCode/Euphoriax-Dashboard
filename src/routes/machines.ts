@@ -4,6 +4,8 @@ import { requireKey } from '../auth.js';
 import { config } from '../config.js';
 import { db, logActivity, now, recordMetric } from '../db.js';
 import { appendLog, claimNext, finishJob } from '../jobs.js';
+import { parseKnowledgeText, suggestKeywords } from '../knowledgeParse.js';
+import { notify } from '../notify.js';
 import { heartbeat, type Status } from '../monitor.js';
 
 const idParam = (req: FastifyRequest) => Number((req.params as { id: string }).id);
@@ -38,6 +40,29 @@ export async function machineRoutes(app: FastifyInstance) {
       db.prepare('INSERT INTO sales (platform, product, amount_cents, event, customer, ts) VALUES (?, ?, ?, ?, ?, ?)')
         .run(s.platform ?? 'manual', s.product, s.amount_cents, s.event ?? 'sale', s.customer ?? null, s.ts ?? now());
       return { ok: true };
+    });
+
+    // Q&As for the Discord bots. Body = text in the V:/O:/C:/A: format (text/plain) or { text } or { items: [...] }.
+    // They land as drafts on the Knowledge page and only go live after we approve them.
+    ingest.post('/api/ingest/knowledge', async (req, reply) => {
+      const body = req.body as unknown;
+      const text = typeof body === 'string' ? body : typeof (body as { text?: string })?.text === 'string' ? (body as { text: string }).text : '';
+      const given = Array.isArray((body as { items?: unknown[] })?.items) ? (body as { items: Record<string, unknown>[] }).items : [];
+      const items = [
+        ...parseKnowledgeText(text),
+        ...given.map((i) => ({
+          question: String(i.question ?? '').trim().slice(0, 500), answer: String(i.answer ?? '').trim().slice(0, 1900),
+          aliases: ([] as unknown[]).concat(i.aliases ?? []).map(String).filter(Boolean),
+          keywords: ([] as unknown[]).concat(i.keywords ?? []).map(String).filter(Boolean),
+          category: i.category ? String(i.category).slice(0, 60) : undefined,
+        })).filter((i) => i.question.length >= 3 && i.answer),
+      ].slice(0, 300);
+      if (!items.length) return reply.code(400).send({ error: 'No entries found. Use "V: question" and "A: answer" blocks separated by a blank line.' });
+      const ins = db.prepare('INSERT INTO kb_drafts (created_at, source, question, answer, aliases, keywords, category) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      for (const i of items) ins.run(now(), 'push', i.question, i.answer, JSON.stringify(i.aliases), JSON.stringify(i.keywords.length ? i.keywords : suggestKeywords(i.question)), i.category ?? null);
+      logActivity(`${items.length} bot answers waiting for review`, 'push');
+      void notify(`📚 **${items.length} new answers for the Discord bots** are waiting for your review: ${config.publicUrl}/#knowledge`);
+      return { ok: true, added: items.length, review: `${config.publicUrl}/#knowledge` };
     });
 
     ingest.post('/api/ingest/metric', async (req) => {

@@ -276,6 +276,8 @@ function inboxHtml(d) {
   for (const p of i.postsToHandle) items.push(`<div class="inbox-item spread" data-post="${p.id}"><div><span class="tag ${p.status === 'manual' ? '' : 'dark'}">${p.status === 'manual' ? 'post this' : 'post ' + esc(p.status)}</span>
     <strong>${esc(p.title)}</strong> <span class="small muted">${p.platforms.split(',').map(pname).join(', ')}</span></div>
     <div class="row">${p.status === 'manual' && p.id ? `<a class="btn" href="media/${p.id}" target="_blank">Video</a>` : ''}<button data-act="published">Done, it's posted</button></div></div>`);
+  if (i.drafts) items.push(`<div class="inbox-item spread"><div><span class="tag dark">review</span> <strong>${i.drafts} new answer${i.drafts > 1 ? 's' : ''} for the Discord bots</strong>
+    <div class="small muted">Pushed in by a tool. The bots only use them after you approve.</div></div><a class="btn" href="#knowledge">Review →</a></div>`);
   const extra = i.questionsTotal > i.questions.length ? `<a href="#incoming/discord">+${i.questionsTotal - i.questions.length} more questions</a>` : '';
   const tickets = i.tickets ? `<a href="#incoming/discord">${i.tickets} open ticket${i.tickets > 1 ? 's' : ''}</a>` : '';
   return `<div class="inbox">
@@ -715,6 +717,7 @@ const kPayload = (form) => {
 
 async function knowledge() {
   const d = await api('/api/knowledge/overview').catch((err) => ({ error: err.message }));
+  const drafts = d.error ? [] : await api('/api/knowledge/drafts').catch(() => []);
   if (d.error) {
     view.innerHTML = `<div class="card strong">Bot Buddy is niet bereikbaar (${esc(d.error)}). <a href="#setup">Controleer de verbinding op de Setup-pagina →</a></div>`;
     return;
@@ -728,7 +731,16 @@ async function knowledge() {
       ${kpi('Uitgeschakeld', String(d.total - d.active), 'worden niet gebruikt')}
       ${kpi('Onbeantwoorde vragen', String(d.gaps.length), 'wachten op jou')}
     </div>
-    ${d.active === 0 ? `<div class="inbox" style="margin-bottom:16px"><strong>De kennisbank is leeg.</strong> Daarom zegt de bot overal "ik vraag het na". Voeg hieronder je 10 meest gestelde vragen toe, of plak ze in één keer bij "Meerdere tegelijk".</div>` : ''}
+    ${drafts.length ? `<div class="inbox" id="k-drafts" style="margin-bottom:16px">
+      <div class="spread"><h2>Te controleren · ${drafts.length} nieuw${drafts.length > 1 ? 'e' : ''} antwoord${drafts.length > 1 ? 'en' : ''}</h2>
+        <span class="row"><button class="primary" id="k-approve-all">Alles goedkeuren</button><button id="k-clear">Alles weggooien</button></span></div>
+      <p class="small muted" style="margin:4px 0 0">Binnengekomen via een tool (bv. Codex). De bots gebruiken ze pas nadat je ze goedkeurt. Controleer vooral prijzen en links.</p>
+      ${drafts.map((r) => `<div class="inbox-item spread" data-draft="${r.id}"><div style="min-width:0;flex:1"><strong>${esc(r.question)}</strong>
+        <div class="small" style="white-space:pre-wrap">${esc(r.answer)}</div>
+        <div class="small muted">${r.category ? `<span class="tag">${esc(r.category)}</span>` : ''}${r.aliases.length ? esc(r.aliases.join(' · ')) : 'geen alternatieve formuleringen'}</div></div>
+        <div class="row"><button data-act="ok" class="primary">Goedkeuren</button><button data-act="no">Weg</button></div></div>`).join('')}
+    </div>` : ''}
+    ${d.active === 0 && !drafts.length ? `<div class="inbox" style="margin-bottom:16px"><strong>De kennisbank is leeg.</strong> Daarom zegt de bot overal "ik vraag het na". Voeg hieronder je 10 meest gestelde vragen toe, of plak ze in één keer bij "Meerdere tegelijk".</div>` : ''}
     <div class="grid g2">
       <div class="stack">
         <div class="card strong"><h2 style="margin-bottom:10px">Antwoord toevoegen</h2><div id="k-add">${knowledgeForm({}, d.categories)}</div></div>
@@ -762,6 +774,23 @@ async function knowledge() {
 
   const reload = () => knowledge();
   const flash = (el, msg) => { const m = el.querySelector('[data-msg]'); if (m) m.textContent = msg; };
+
+  // drafts
+  const approve = async (ids) => {
+    try {
+      const r = await api('/api/knowledge/drafts/approve', { json: { ids } });
+      toast(`${r.added} goedgekeurd. De bots gebruiken ze meteen.`);
+      if (r.errors.length) alert(r.errors.join('\n'));
+      reload();
+    } catch (err) { toast(err.message); }
+  };
+  $('#k-approve-all')?.addEventListener('click', () => approve());
+  $('#k-clear')?.addEventListener('click', async () => { if (confirm('Alle concepten weggooien?')) { await api('/api/knowledge/drafts/clear', { json: {} }); reload(); } });
+  view.querySelectorAll('[data-draft] [data-act]').forEach((b) => b.onclick = async () => {
+    const id = Number(b.closest('[data-draft]').dataset.draft);
+    if (b.dataset.act === 'ok') return approve([id]);
+    await api(`/api/knowledge/drafts/${id}`, { method: 'DELETE' }); reload();
+  });
 
   // add one
   const addForm = $('#k-new');
@@ -1132,6 +1161,8 @@ async function setup() {
           <div class="log mono" style="margin-top:6px">curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/heartbeat -H "x-api-key: KEY" -H "content-type: application/json" -d '{"name":"My bot"}'
 
 curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/signal -H "x-api-key: KEY" -H "content-type: application/json" -d '{"kind":"request","text":"please make a pet system"}'
+
+curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/knowledge -H "x-api-key: KEY" -H "content-type: text/plain" --data-binary @antwoorden.txt
 
 curl -X POST ${esc(s.urls.publicUrl)}/api/ingest/sale -H "x-api-key: KEY" -H "content-type: application/json" -d '{"product":"Pet System","amount_cents":1500}'</div></details>
       </div>

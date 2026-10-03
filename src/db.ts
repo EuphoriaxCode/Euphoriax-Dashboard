@@ -102,6 +102,12 @@ CREATE TABLE IF NOT EXISTS jobs (
   kind TEXT NOT NULL DEFAULT 'build', report_id INTEGER
 );
 
+-- Q&As pushed in by tools (e.g. Codex); they wait here until we approve them.
+CREATE TABLE IF NOT EXISTS kb_drafts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, source TEXT,
+  question TEXT NOT NULL, answer TEXT NOT NULL, aliases TEXT NOT NULL DEFAULT '[]', keywords TEXT NOT NULL DEFAULT '[]', category TEXT
+);
+
 CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, who TEXT, text TEXT NOT NULL
 );

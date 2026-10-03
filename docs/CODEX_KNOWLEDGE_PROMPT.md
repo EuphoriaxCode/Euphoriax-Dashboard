@@ -55,9 +55,21 @@ TODO FOR THE FOUNDERS: questions members will probably ask that you could not an
 SOURCES USED: file paths or URLs you relied on.
 CONFLICTS: facts that differ between sources.
 
+PUSHING THE RESULT (optional; only if you can run shell commands with internet access)
+Save only the entries (no code fence, no TODO text) to a file answers.txt, then run:
+curl -sS -X POST https://euphoriax.net/dashboard/api/ingest/knowledge -H "x-api-key: [PASTE-KEY-HERE]" -H "content-type: text/plain" --data-binary @answers.txt
+The entries land in a review inbox; nothing goes live until the founders approve. Print the command's response. If you cannot run it, just return the code block as described above.
+
 EXTRA FACTS (written by the founders; may be empty)
 [PASTE HERE: Patreon tier names, prices and what they include, refund policy, links, rules, anything you want the bots to know]
 ````
+
+## Direct laten sturen (optioneel)
+Codex kan het resultaat zelf naar het dashboard sturen. Het komt dan bij **Knowledge → Te controleren** (en bij Needs you op het overzicht)
+en gaat pas live nadat jij op **Goedkeuren** klikt. Daarvoor heeft Codex internet en een sleutel nodig:
+- Dashboard → **Setup** → "Keys for other tools" → **Bot / script key** → Copy, en plak hem in de prompt op de plek van `[PASTE-KEY-HERE]`.
+- Codex in de cloud heeft standaard geen internet; Codex op je eigen pc (CLI) wel. Lukt het sturen niet, dan geeft Codex gewoon het codeblok terug en plak je dat zoals hieronder.
+- Die sleutel laat iemand alleen concepten, heartbeats en berichten naar het dashboard sturen. Niets daarvan gaat live zonder jouw goedkeuring. Verander de sleutel achteraf als je hem wilt intrekken (Setup).
 
 ## Daarna
 1. Controleer prijzen, links en beloftes in de uitvoer. De bots zeggen dit als feit.
