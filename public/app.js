@@ -27,7 +27,12 @@ const ago = (ts) => {
 const when = (ts) => ts ? new Date(ts).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
 const pname = (p) => PLATFORM_NAMES[p] ?? p;
 
+// Bumped on every tab change. A page that was still loading when you left it must never draw over the new one,
+// so answers to page-load (GET) requests that started on an earlier tab are dropped.
+let navGen = 0;
+
 async function api(path, opts = {}) {
+  const gen = navGen;
   const init = { ...opts, headers: { ...(opts.headers ?? {}) } };
   if (opts.json !== undefined) {
     init.method = init.method ?? 'POST';
@@ -35,6 +40,7 @@ async function api(path, opts = {}) {
     init.body = JSON.stringify(opts.json);
   }
   const res = await fetch(path.replace(/^\//, ''), init);
+  if (opts.json === undefined && gen !== navGen) return new Promise(() => {});
   if (res.status === 401 && !path.includes('login')) { showLogin(); throw new Error('login required'); }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
@@ -130,6 +136,7 @@ async function keepScroll(fn) {
 
 async function route() {
   clearInterval(timer);
+  navGen++;
   const [name, sub] = (location.hash.slice(1) || 'overview').split('/');
   const page = pages[name] ?? overview;
   document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${name}`));
@@ -159,6 +166,21 @@ async function start() {
   route();
   updateHealthPill();
   setInterval(updateHealthPill, 60_000);
+  watchForNewVersion();
+}
+
+// An open tab keeps running the old code after a deploy (that is how pages ended up drawing over each other).
+// When the server has newer page files, reload once, but never while someone is typing.
+async function watchForNewVersion() {
+  const version = async () => (await fetch('health', { cache: 'no-store' }).then((r) => r.json()).catch(() => null))?.v;
+  const loaded = await version();
+  if (!loaded) return;
+  setInterval(async () => {
+    const v = await version();
+    const el = document.activeElement;
+    const typing = el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && el.value;
+    if (v && v !== loaded && !document.hidden && !typing) location.reload();
+  }, 60_000);
 }
 start();
 
