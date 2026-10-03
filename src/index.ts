@@ -51,7 +51,11 @@ await app.register(async (root) => {
 
   await root.register(fastifyStatic, { root: publicDir, prefix: '/' });
 
-  root.get('/health', async () => ({ ok: true }));
+  // `v` changes whenever the page files change, so open tabs can notice a new version and reload themselves.
+  root.get('/health', async () => ({
+    ok: true,
+    v: ['app.js', 'index.html', 'style.css'].reduce((n, f) => Math.max(n, statSync(join(publicDir, f)).mtimeMs), 0),
+  }));
 
   // First visit: no accounts yet, so the page asks you to create them.
   root.get('/api/setup-state', async () => ({ needsAccount: needsFirstAccount() }));

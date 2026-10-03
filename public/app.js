@@ -166,6 +166,21 @@ async function start() {
   route();
   updateHealthPill();
   setInterval(updateHealthPill, 60_000);
+  watchForNewVersion();
+}
+
+// An open tab keeps running the old code after a deploy (that is how pages ended up drawing over each other).
+// When the server has newer page files, reload once, but never while someone is typing.
+async function watchForNewVersion() {
+  const version = async () => (await fetch('health', { cache: 'no-store' }).then((r) => r.json()).catch(() => null))?.v;
+  const loaded = await version();
+  if (!loaded) return;
+  setInterval(async () => {
+    const v = await version();
+    const el = document.activeElement;
+    const typing = el && ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && el.value;
+    if (v && v !== loaded && !document.hidden && !typing) location.reload();
+  }, 60_000);
 }
 start();
 
