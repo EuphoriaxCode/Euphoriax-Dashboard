@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs ONE server action for the dashboard's Update / Restart buttons and for automatic updates.
-#   update | auto-update | restart-all | restart-dashboard | restart-buddy | restart-trends | reboot
+#   update | auto-update | restart-all | restart-dashboard | restart-buddy | restart-trends | reboot | apply-config
 #   versions   refresh versions.json (what runs, what is new on GitHub)
 #   pending    refresh versions.json and print the apps that have something new worth deploying
 # Progress goes to <control dir>/status.json and log.txt, which the dashboard shows live.
@@ -72,7 +72,7 @@ pending_ids() {
 if [ "$ACTION" = versions ]; then write_versions; exit 0; fi
 if [ "$ACTION" = pending ]; then write_versions; pending_ids; exit 0; fi
 
-case "$ACTION" in update|auto-update|restart-all|restart-dashboard|restart-buddy|restart-trends|reboot) ;; *) echo "unknown action: $ACTION" >&2; exit 2;; esac
+case "$ACTION" in update|auto-update|restart-all|restart-dashboard|restart-buddy|restart-trends|reboot|apply-config) ;; *) echo "unknown action: $ACTION" >&2; exit 2;; esac
 
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -144,6 +144,11 @@ case "$ACTION" in
   auto-update)
     for id in $(pending_ids); do update_app "$id"; done
     docker image prune -f >/dev/null 2>&1 || true ;;
+  apply-config)
+    # The dashboard picked up new settings from its .env (docker only reads it when the container is created again).
+    step "Dashboard: applying new settings"
+    in_dir "$(dir_of dashboard)" docker compose up -d --force-recreate
+    wait_healthy dashboard || { echo "The dashboard does not answer yet, check its logs."; FAILED=1; } ;;
   restart-all)       for id in trends buddy dashboard; do restart_app "$id"; done ;;
   restart-dashboard) restart_app dashboard ;;
   restart-buddy)     restart_app buddy ;;

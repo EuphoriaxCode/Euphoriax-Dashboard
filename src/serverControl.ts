@@ -10,6 +10,7 @@ import { logActivity } from './db.js';
 export const ACTIONS: Record<string, string> = {
   update: 'Update everything',
   'auto-update': 'Automatic update',
+  'apply-config': 'Applying settings',
   'restart-all': 'Restart everything',
   'restart-dashboard': 'Restart the dashboard',
   'restart-buddy': 'Restart the Discord bots',
@@ -49,7 +50,7 @@ export function setAutoUpdate(enabled: boolean, who: string) {
 }
 
 export function requestAction(action: string, who: string) {
-  if (!ACTIONS[action] || action === 'auto-update') throw Object.assign(new Error('Unknown action'), { statusCode: 400 });
+  if (!ACTIONS[action] || action === 'auto-update' || action === 'apply-config') throw Object.assign(new Error('Unknown action'), { statusCode: 400 });
   const s = controlState();
   if (!s.helperInstalled) throw Object.assign(new Error('The server helper is not installed yet (see the Server box on the Status page)'), { statusCode: 409 });
   if (s.status.state === 'running' || s.queued > 0) throw Object.assign(new Error('Something is already running, wait until it is done'), { statusCode: 409 });
