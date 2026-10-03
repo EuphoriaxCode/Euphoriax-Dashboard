@@ -23,7 +23,9 @@ export function setServiceStatus(name: string, kind: string, status: Status, det
   const display = label ?? prev?.label ?? name;
   if (wasUp && status === 'offline') {
     logActivity(`${display} went OFFLINE: ${detail}`);
-    void notify(`🔴 **${display}** is offline - ${detail}`);
+    // The build PC is often switched off and the Trends scrapers flap, so those do not ping anyone.
+    const serious = kind !== 'machine' && kind !== 'trends';
+    void notify(`🔴 **${display}** is offline - ${detail}`, { urgent: serious });
   } else if (prev?.status === 'offline' && status === 'online') {
     logActivity(`${display} is back online`);
     void notify(`🟢 **${display}** is back online`);
