@@ -34,6 +34,9 @@ export function contentPerformance({ days = 7, platform = '', limit = 50 } = {})
   return db.prepare(`
     SELECT c.*, c.views - COALESCE((
       SELECT s.views FROM content_snapshots s WHERE s.content_id = c.id AND s.ts <= ? ORDER BY s.ts DESC LIMIT 1
+    ), (
+      -- not tracking for the whole window yet: count the gain since the first snapshot we have
+      SELECT s.views FROM content_snapshots s WHERE s.content_id = c.id ORDER BY s.ts ASC LIMIT 1
     ), CASE WHEN c.published_at >= ? THEN 0 ELSE c.views END) AS gained
     FROM content c WHERE (? = '' OR c.platform = ?)
     ORDER BY gained DESC, c.views DESC LIMIT ?`)
