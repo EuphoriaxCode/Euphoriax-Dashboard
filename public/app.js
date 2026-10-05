@@ -736,6 +736,7 @@ async function trendsPage(el) {
         <input name="value" placeholder="Track something, e.g. pets or 1234-5678-9012" style="width:260px" required>
         <button>Track</button>
         <button type="button" id="run-trends">Fresh trend report</button>
+        <button type="button" id="repost-trends">Repost to Discord</button>
       </form></div>
     <div class="grid g2">
       <div class="card"><h2 style="margin-bottom:8px">Top trends</h2>${trendTable(top?.topTrends)}</div>
@@ -753,6 +754,12 @@ async function trendsPage(el) {
   };
   $('#run-trends').onclick = async () => {
     try { await api('/api/trends/run-report', { json: {} }); toast('UEFN Trends is making a new report. Refresh in a few minutes.'); } catch (err) { toast(err.message); }
+  };
+  $('#repost-trends').onclick = async (e) => {
+    if (!confirm("Post today's UEFN trend report to Discord again?")) return;
+    e.target.disabled = true;
+    try { await api('/api/trends/repost', { json: {} }); toast('Posting to Discord - it shows up within a minute.'); } catch (err) { toast(err.message); }
+    setTimeout(() => { e.target.disabled = false; }, 60_000);
   };
 }
 

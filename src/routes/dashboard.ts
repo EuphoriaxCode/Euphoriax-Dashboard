@@ -214,6 +214,19 @@ export async function dashboardRoutes(app: FastifyInstance) {
     logActivity('Asked UEFN Trends for a fresh report', who(req));
     return { ok: true };
   });
+  // Rebuilds today's report and posts it to Discord again. Making the report can take longer than our
+  // HTTP timeout (one AI call), so it runs in the background and the outcome lands in the activity log.
+  app.post('/api/trends/repost', async (req) => {
+    const by = who(req);
+    logActivity('Asked UEFN Trends to post today\'s report to Discord again', by);
+    trendsApi<{ status?: string; details?: { posted?: boolean; reason?: string } }>('/api/v1/admin/jobs/report:repost/run', { method: 'POST', body: {} })
+      .then((r) => logActivity(r.details?.posted ? 'UEFN Trends report posted to Discord' : `UEFN Trends report not posted (${r.status ?? 'unknown'}${r.details?.reason ? `: ${r.details.reason}` : ''})`, by))
+      .catch((err: Error) => {
+        // a timeout only means the engine is still busy - it keeps going on its side
+        if (err.name !== 'TimeoutError') logActivity(`UEFN Trends repost failed: ${err.message}`, by);
+      });
+    return { ok: true };
+  });
   app.post('/api/trends/watch', async (req) => {
     const b = req.body as { kind: string; value: string };
     await trendsApi('/api/v1/watchlist', { method: 'POST', body: { kind: b.kind, value: b.value, note: `added by ${who(req)}` } });
