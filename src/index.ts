@@ -16,6 +16,7 @@ import { db, logActivity } from './db.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { machineRoutes } from './routes/machines.js';
 import { startScheduler } from './scheduler.js';
+import { recordView } from './siteStats.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(here, '..', 'public');
@@ -76,6 +77,15 @@ await app.register(async (root) => {
   root.get('/machine/worker.mjs', async (_req, reply) => {
     reply.header('content-type', 'text/javascript; charset=utf-8');
     return reply.send(createReadStream(join(here, '..', 'machine', 'worker.mjs')));
+  });
+
+  // Page-view beacon from euphoriax.net (public, no login). Always 204 so the website never shows an error.
+  root.post('/api/site/view', async (req, reply) => {
+    let body = req.body as unknown;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+    try { recordView((body ?? {}) as Record<string, string>, req.ip, String(req.headers['user-agent'] ?? ''), req.headers.origin); }
+    catch (err) { req.log.warn(err); }
+    return reply.code(204).send();
   });
 
   root.post('/api/login', async (req, reply) => {

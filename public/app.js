@@ -473,10 +473,11 @@ function bindIdeaButtons() {
 // INCOMING
 // ======================================================================
 async function incoming(sub = 'content') {
-  const tabs = [['content', 'Content & views'], ['sales', 'Sales'], ['discord', 'Discord'], ['community', 'What people say'], ['trends', 'UEFN trends'], ['growth', 'Growth']];
+  const tabs = [['content', 'Content & views'], ['website', 'Website'], ['sales', 'Sales'], ['discord', 'Discord'], ['community', 'What people say'], ['trends', 'UEFN trends'], ['growth', 'Growth']];
   view.innerHTML = `<div class="tabs">${tabs.map(([k, l]) => `<button class="${k === sub ? 'active' : ''}" onclick="location.hash='incoming/${k}'">${l}</button>`).join('')}</div><div id="sub"></div>`;
   const el = $('#sub');
   if (sub === 'content') return contentPage(el);
+  if (sub === 'website') return websitePage(el);
   if (sub === 'sales') return salesPage(el);
   if (sub === 'community') return communityPage(el);
   if (sub === 'discord') return discordPage(el);
@@ -508,6 +509,76 @@ async function contentPage(el, days = 7, platform = '') {
     </table></div></div>`;
   $('#days').onchange = (e) => contentPage(el, Number(e.target.value), platform);
   $('#plat').onchange = (e) => contentPage(el, days, e.target.value);
+}
+
+// ---------- euphoriax.net visitors (cookieless beacon from the website) ----------
+async function websitePage(el, days = 30) {
+  const d = await api(`/api/website?days=${days}`);
+  const t = d.totals, p = d.previous;
+  const vs = (a, b) => (b ? `${signed(a - b)} vs previous ${days} day${days > 1 ? 's' : ''}` : '');
+  const bars = (rows, label, value, tipFn) => {
+    if (!rows.length) return empty('No visits yet.');
+    const max = Math.max(1, ...rows.map(value));
+    return rows.map((r) => `<div class="bar-row"><span title="${esc(label(r))}">${esc(label(r))}</span>${bar(value(r), max, tipFn(r))}<span class="num">${fmt(value(r))}</span></div>`).join('');
+  };
+  const totalVisits = d.sources.reduce((n, s) => n + s.visits, 0);
+  const pct = (n) => (totalVisits ? Math.round((n / totalVisits) * 100) + '%' : '');
+  el.innerHTML = `
+    <div class="spread" style="margin-bottom:12px">
+      <select id="wdays" style="width:auto">${[1, 7, 30, 90, 365].map((n) => `<option value="${n}" ${n === days ? 'selected' : ''}>Last ${n} day${n > 1 ? 's' : ''}</option>`).join('')}</select>
+      <span class="small muted">${d.lastView ? `Last page view ${ago(d.lastView)}` : 'No page views received yet: the tracker is in the website build (production) from the next deploy.'}</span>
+    </div>
+    <div class="kpis">
+      ${kpi('Visitors', fmt(t.visitors), vs(t.visitors, p.visitors))}
+      ${kpi('Visits', fmt(t.visits), vs(t.visits, p.visits))}
+      ${kpi('Page views', fmt(t.views), t.visits ? `${(t.views / t.visits).toFixed(1)} pages per visit` : '')}
+      ${kpi('On the site now', fmt(d.liveNow), 'last 30 minutes')}
+    </div>
+    <div class="card" style="margin-bottom:16px"><h2 style="margin-bottom:8px">Visitors per day</h2>${dailyChart(d.daily, days)}</div>
+    <div class="grid g2">
+      <div class="card"><h2 style="margin-bottom:8px">Where visitors come from</h2>
+        ${bars(d.sources, (r) => r.source, (r) => r.visits, (r) => `${r.source}: ${fmt(r.visits)} visits (${pct(r.visits)}) · ${fmt(r.visitors)} visitors`)}
+        <p class="small muted" style="margin:10px 0 0">"Direct / unknown" = typed the address, a bookmark, or an app that hides where the click came from (Discord app, WhatsApp...).
+        Put <span class="mono">?ref=discord</span> or <span class="mono">?ref=yt</span> behind your links to see those too.</p></div>
+      <div class="card"><h2 style="margin-bottom:8px">Referring websites</h2>
+        ${bars(d.referrers, (r) => r.host, (r) => r.visits, (r) => `${r.host} (${r.source}): ${fmt(r.visits)} visits`)}
+        ${d.campaigns.length ? `<h2 style="margin:16px 0 8px">Tagged links (?ref= / ?utm_source=)</h2>${bars(d.campaigns, (r) => r.campaign, (r) => r.visits, (r) => `${r.campaign}: ${fmt(r.visits)} visits`)}` : ''}</div>
+    </div>
+    <div class="grid g3" style="margin-top:16px">
+      <div class="card span2"><h2 style="margin-bottom:8px">Pages</h2><div class="table-wrap"><table>
+        <tr><th>Page</th><th class="num">Views</th><th class="num">Visitors</th><th class="num" title="Visits that started on this page">Landed here</th></tr>
+        ${d.pages.map((r) => `<tr><td class="title"><a href="https://euphoriax.net${esc(r.path)}" target="_blank" rel="noopener">${esc(r.path)}</a></td>
+          <td class="num"><strong>${fmt(r.views)}</strong></td><td class="num">${fmt(r.visitors)}</td><td class="num">${fmt(r.entries)}</td></tr>`).join('') || `<tr><td colspan="4">${empty('No page views yet.')}</td></tr>`}
+      </table></div></div>
+      <div class="stack">
+        <div class="card"><h2 style="margin-bottom:8px">Device</h2>${bars(d.devices, (r) => r.device, (r) => r.visitors, (r) => `${r.device}: ${fmt(r.visitors)} visitors`)}</div>
+        <div class="card"><h2 style="margin-bottom:8px">Time zone (rough location)</h2>${bars(d.regions, (r) => r.tz.replace(/_/g, ' '), (r) => r.visitors, (r) => `${r.tz}: ${fmt(r.visitors)} visitors`)}</div>
+      </div>
+    </div>
+    <p class="small muted">No cookies and no IP addresses are stored: a visitor is counted once per day. Search terms people typed in Google are only in Google Search Console.</p>`;
+  $('#wdays').onchange = (e) => websitePage(el, Number(e.target.value));
+}
+
+function dailyChart(rows, days) {
+  if (!rows.length) return empty('No visits yet.');
+  // Fill missing days with 0 so gaps are visible.
+  const byDay = new Map(rows.map((r) => [r.day, r]));
+  const span = Math.min(days, 365);
+  const list = Array.from({ length: span }, (_, i) => {
+    const day = new Date(Date.now() - (span - 1 - i) * 864e5).toISOString().slice(0, 10);
+    return byDay.get(day) ?? { day, visitors: 0, views: 0 };
+  });
+  const W = 800, H = 120, gap = list.length > 60 ? 0 : 2;
+  const max = Math.max(1, ...list.map((r) => r.visitors));
+  const w = W / list.length;
+  const fmtDay = (s) => new Date(s + 'T12:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="Visitors per day">
+    ${list.map((r, i) => {
+      const h = (r.visitors / max) * (H - 4);
+      return `<rect x="${i * w}" y="0" width="${w}" height="${H}" fill="transparent" data-tip="${esc(fmtDay(r.day))}: ${fmt(r.visitors)} visitors · ${fmt(r.views)} page views"/>
+        <rect x="${i * w + gap / 2}" y="${H - h}" width="${Math.max(1, w - gap)}" height="${h}" fill="var(--bar)" pointer-events="none"/>`;
+    }).join('')}</svg>
+    <div class="spread small muted"><span>${esc(fmtDay(list[0].day))}</span><span>max ${fmt(max)} visitors/day</span><span>${esc(fmtDay(list.at(-1).day))}</span></div>`;
 }
 
 // A sale is a new patron or a manually added sale. Plan changes, cancellations and other Patreon events are not.

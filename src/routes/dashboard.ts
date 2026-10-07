@@ -21,6 +21,7 @@ import { ACTIONS, controlState, requestAction, setAutoUpdate } from '../serverCo
 import { PLATFORMS, publish, type PostRow } from '../outgoing/publish.js';
 import { analysisRunning, buildSnapshot, dropQueuedAnalysis, runDailyAnalysis, SYSTEM } from '../ai/daily.js';
 import { writeCaptions } from '../ai/captions.js';
+import { websiteStats } from '../siteStats.js';
 
 const idStr = (req: FastifyRequest) => encodeURIComponent((req.params as { id: string }).id);
 const who = (req: FastifyRequest) => (req as FastifyRequest & { user: string }).user;
@@ -244,6 +245,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const q = req.query as { platform: string; key: string; days?: string };
     return metricHistory(q.platform, q.key, Number(q.days) || 30);
   });
+  app.get('/api/website', async (req) => {
+    const days = Number((req.query as { days?: string }).days);
+    return websiteStats([1, 7, 30, 90, 365].includes(days) ? days : 30);
+  });
+
   app.get('/api/sales', async () => ({
     products: products(), sales: recentSales(60), metrics: latestMetrics().patreon ?? {},
     topProducts: topProducts(60, 12),

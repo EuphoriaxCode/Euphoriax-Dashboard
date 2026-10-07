@@ -11,6 +11,7 @@ import { autodetectServices } from './settings.js';
 import { ACTIONS, controlState } from './serverControl.js';
 import { notify } from './notify.js';
 import { logActivity } from './db.js';
+import { pruneSiteViews } from './siteStats.js';
 
 function every(ms: number, name: string, fn: () => Promise<unknown> | unknown) {
   let busy = false;
@@ -53,5 +54,6 @@ export function startScheduler() {
   });
   every(24 * 3600_000, 'cleanup', () => {
     db.prepare('DELETE FROM activity WHERE ts < ?').run(Date.now() - 60 * 864e5);
+    pruneSiteViews();
   });
 }
