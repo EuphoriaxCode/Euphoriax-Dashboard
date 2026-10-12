@@ -7,19 +7,20 @@ import { config } from './config.js';
 export interface Job {
   id: number; title: string; prompt: string; position: number; status: string; machine: string | null;
   started_at: number | null; finished_at: number | null; summary: string | null; log: string; attempts: number;
-  idea_id: number | null; created_at: number; created_by: string | null; kind: string; report_id: number | null;
+  idea_id: number | null; created_at: number; created_by: string | null; kind: string; report_id: number | null; video_done: number;
 }
 
 const MAX_LOG = 200_000;
 
 export function addJob(title: string, prompt: string, who: string, ideaId: number | null = null, top = false,
-  kind: 'build' | 'analysis' = 'build', reportId: number | null = null) {
+  kind: 'build' | 'analysis' = 'build', reportId: number | null = null, manual = false) {
   const edge = db.prepare(`SELECT ${top ? 'MIN' : 'MAX'}(position) p FROM jobs WHERE status = 'queued'`).get() as { p: number | null };
   const position = edge.p === null ? 1000 : top ? edge.p - 1 : edge.p + 1;
-  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id, kind, report_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(now(), who, title, prompt, position, ideaId, kind, reportId).lastInsertRowid);
+  // A manual build never enters the queue: the build PC only claims 'queued' jobs.
+  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id, kind, report_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(now(), who, title, prompt, manual ? 0 : position, ideaId, kind, reportId, manual ? 'manual' : 'queued').lastInsertRowid);
   if (ideaId) db.prepare(`UPDATE ideas SET status = 'queued' WHERE id = ?`).run(ideaId);
-  if (kind === 'build') logActivity(`Queued build "${title}"`, who);
+  if (kind === 'build') logActivity(manual ? `Added manual build "${title}"` : `Queued build "${title}"`, who);
   return id;
 }
 

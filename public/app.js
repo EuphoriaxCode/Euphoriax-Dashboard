@@ -1293,7 +1293,14 @@ async function build(sub) {
   const machines = services.filter((s) => s.kind === 'machine');
   const running = jobs.filter((j) => j.status === 'running');
   const queued = jobs.filter((j) => j.status === 'queued');
-  const done = jobs.filter((j) => !['running', 'queued'].includes(j.status) && !(j.kind === 'analysis' && j.status === 'cancelled'));
+  const manual = jobs.filter((j) => j.status === 'manual');
+  const done = jobs.filter((j) => !['running', 'queued', 'manual'].includes(j.status) && !(j.kind === 'analysis' && j.status === 'cancelled'));
+  // Overview of every build: is the system made, is the video made?
+  const builds = jobs.filter((j) => j.kind === 'build' && !['cancelled', 'failed'].includes(j.status));
+  const isReady = (j) => j.status === 'done' && j.video_done;
+  const needVideo = builds.filter((j) => j.status === 'done' && !j.video_done);
+  const notBuilt = builds.filter((j) => j.status !== 'done');
+  const ready = builds.filter(isReady);
   const openId = Number(sub) || running[0]?.id;
   const open = openId ? await api(`/api/jobs/${openId}`) : null;
 
@@ -1304,7 +1311,9 @@ async function build(sub) {
           <h2>New build prompt</h2>
           <label>Title <input name="title" placeholder="e.g. Pet system v1"></label>
           <label>Prompt for Claude on the build machine <textarea name="prompt" rows="8" required placeholder="What should be built in UEFN? Be specific: devices, UI, behaviour, how to test it."></textarea></label>
-          <div class="spread"><label class="check"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit">Add to queue</button></div>
+          <label>Who builds it?
+            <select name="mode"><option value="pc">Build PC (automatic, goes in the queue)</option><option value="manual">Manually (I build it myself)</option></select></label>
+          <div class="spread"><label class="check" id="top-wrap"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit" id="job-submit">Add to queue</button></div>
         </form>
         <div class="card"><h2 style="margin-bottom:8px">Machines</h2>
           ${machines.map((s) => `<div class="spread"><span><strong>${esc(s.label)}</strong><div class="small muted">${esc(s.detail ?? '')} · ${ago(s.last_seen)}</div></span>${statusBadge(s.status)}</div>`).join('') || empty('No build PC connected yet.')}
@@ -1322,6 +1331,17 @@ async function build(sub) {
             ${!running.length && !queued.length ? `<li>${empty('Queue is empty. Add a prompt or send an AI idea here.')}</li>` : ''}
           </ul>
         </div>
+        ${manual.length ? `<div class="card"><h2 style="margin-bottom:8px">Building it myself</h2>
+          <ul class="list">${manual.map((j) => `<li data-job="${j.id}" class="spread">
+            <div style="min-width:0;flex:1"><a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a><div class="small muted">added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}</div></div>
+            <div class="row"><a class="btn" href="api/jobs/${j.id}/prompt" download>⬇ Download prompt</a><button data-act="made" class="primary">Made</button><button data-act="cancel">Cancel</button></div></li>`).join('')}</ul></div>` : ''}
+        <div class="card"><div class="spread" style="margin-bottom:8px"><h2>Ready overview</h2>
+          <span class="small muted">${ready.length} ready · ${needVideo.length} need a video · ${notBuilt.length} not built yet</span></div>
+          ${builds.length ? `<div class="table-wrap"><table><tr><th>Build</th><th>System</th><th>Video</th></tr>
+            ${[...needVideo, ...notBuilt].map(readyRow).join('')}</table></div>
+            ${ready.length ? `<details style="margin-top:8px"><summary>Ready (${ready.length})</summary><div class="table-wrap"><table>${ready.map(readyRow).join('')}</table></div></details>` : ''}`
+            : empty('No builds yet.')}
+        </div>
         ${open ? `<div class="card"><div class="spread"><h2>#${open.id} ${esc(open.title)}</h2><span class="tag ${open.status === 'failed' ? 'dark' : ''}">${esc(open.status)}</span></div>
           <div class="small muted">${open.machine ? `on ${esc(open.machine)} · ` : ''}started ${ago(open.started_at)}${open.finished_at ? ` · finished ${ago(open.finished_at)}` : ''} · attempts ${open.attempts}</div>
           ${open.summary ? `<p><strong>Result:</strong> ${esc(open.summary)}</p>` : ''}
@@ -1336,10 +1356,17 @@ async function build(sub) {
       </div>
     </div>`;
 
+  const modeSel = $('#job-form select[name=mode]');
+  modeSel.onchange = () => {
+    const manualMode = modeSel.value === 'manual';
+    $('#top-wrap').hidden = manualMode;
+    $('#job-submit').textContent = manualMode ? 'Save for myself' : 'Add to queue';
+  };
   $('#job-form').onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
-    try { await api('/api/jobs', { json: { title: f.get('title'), prompt: f.get('prompt'), top: !!f.get('top') } }); toast('Added to the queue'); build(); }
+    const isManual = f.get('mode') === 'manual';
+    try { await api('/api/jobs', { json: { title: f.get('title'), prompt: f.get('prompt'), top: !isManual && !!f.get('top'), manual: isManual } }); toast(isManual ? 'Saved. Download the prompt below' : 'Added to the queue'); build(); }
     catch (err) { toast(err.message); }
   };
   view.querySelectorAll('[data-job] [data-act]').forEach((btn) => {
@@ -1350,6 +1377,8 @@ async function build(sub) {
         if (act === 'up' || act === 'down') await api(`/api/jobs/${id}/move`, { json: { dir: act } });
         if (act === 'cancel' && confirm('Cancel this build?')) await api(`/api/jobs/${id}/cancel`, { json: {} });
         if (act === 'retry') await api(`/api/jobs/${id}/retry`, { json: {} });
+        if (act === 'made') await api(`/api/jobs/${id}/made`, { json: {} });
+        if (act === 'video-on' || act === 'video-off') await api(`/api/jobs/${id}/video`, { json: { done: act === 'video-on' } });
         build(sub);
       } catch (err) { toast(err.message); }
     };
@@ -1357,6 +1386,15 @@ async function build(sub) {
   const log = $('#joblog');
   if (log) log.scrollTop = log.scrollHeight;
   if (running.length) timer = setInterval(() => { if (!document.hidden) keepScroll(() => build(sub)).catch(() => {}); }, 8000);
+}
+
+// One line of the "Ready overview": where is this build (system made?) and does its video exist yet?
+function readyRow(j) {
+  const system = { done: '<span class="tag">✓ made</span>', running: '<span class="tag dark">building</span>', queued: '<span class="muted">in the queue</span>', manual: '<span class="muted">you build it</span>' }[j.status] ?? esc(j.status);
+  const video = j.video_done
+    ? '<span class="tag">✓ video made</span> <button data-act="video-off">Undo</button>'
+    : '<span class="muted">no video yet</span> <button data-act="video-on">Video is made</button>';
+  return `<tr data-job="${j.id}"><td class="title"><a href="#build/${j.id}">${esc(j.title)}</a></td><td>${system}</td><td>${video}</td></tr>`;
 }
 
 function jobRow(j, isRunning, i = 0, n = 0) {

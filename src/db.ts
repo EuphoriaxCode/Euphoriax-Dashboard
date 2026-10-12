@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at INTEGER NOT NULL, created_by TEXT,
   title TEXT NOT NULL, prompt TEXT NOT NULL,
   position REAL NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued', -- queued | running | done | failed | cancelled
+  status TEXT NOT NULL DEFAULT 'queued', -- queued | running | done | failed | cancelled | manual (we build it ourselves, not on the build PC)
   machine TEXT, started_at INTEGER, finished_at INTEGER,
   summary TEXT, log TEXT NOT NULL DEFAULT '', idea_id INTEGER, attempts INTEGER NOT NULL DEFAULT 0,
   kind TEXT NOT NULL DEFAULT 'build', report_id INTEGER
@@ -118,6 +118,7 @@ for (const sql of [
   'ALTER TABLE signals ADD COLUMN ext_id TEXT',
   "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'build'",
   'ALTER TABLE jobs ADD COLUMN report_id INTEGER',
+  'ALTER TABLE jobs ADD COLUMN video_done INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE sales ADD COLUMN ext_id TEXT',
 ]) {
   try { db.exec(sql); } catch { /* already there */ }

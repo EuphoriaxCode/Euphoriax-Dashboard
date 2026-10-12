@@ -327,23 +327,46 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   // ---------- Build queue ----------
   app.get('/api/jobs', async () => db.prepare(`SELECT id, created_at, created_by, title, position, status, machine, started_at,
-    finished_at, summary, attempts, idea_id, kind, substr(prompt, 1, 300) prompt FROM jobs
+    finished_at, summary, attempts, idea_id, kind, video_done, substr(prompt, 1, 300) prompt FROM jobs
     ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, position, finished_at DESC LIMIT 200`).all());
   app.get('/api/jobs/:id', async (req) => db.prepare('SELECT * FROM jobs WHERE id = ?').get(idParam(req)));
   app.post('/api/jobs', async (req, reply) => {
-    const b = req.body as { title?: string; prompt?: string; top?: boolean };
+    const b = req.body as { title?: string; prompt?: string; top?: boolean; manual?: boolean };
     if (!b.prompt?.trim()) return reply.code(400).send({ error: 'prompt required' });
     const title = b.title?.trim() || b.prompt.trim().split('\n')[0].slice(0, 80);
-    return { id: addJob(title, b.prompt.trim(), who(req), null, !!b.top) };
+    return { id: addJob(title, b.prompt.trim(), who(req), null, !!b.top, 'build', null, !!b.manual) };
   });
   app.post('/api/jobs/:id/move', async (req) => { moveJob(idParam(req), (req.body as { dir: 'up' | 'down' }).dir); return { ok: true }; });
   app.post('/api/jobs/:id/cancel', async (req) => {
-    db.prepare(`UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status IN ('queued', 'running')`).run(now(), idParam(req));
+    db.prepare(`UPDATE jobs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status IN ('queued', 'running', 'manual')`).run(now(), idParam(req));
     const job = db.prepare('SELECT kind, report_id FROM jobs WHERE id = ?').get(idParam(req)) as { kind: string; report_id: number | null } | undefined;
     if (job?.kind === 'analysis' && job.report_id) {
       db.prepare(`UPDATE reports SET status = 'failed', error = 'cancelled' WHERE id = ? AND status IN ('queued', 'running')`).run(job.report_id);
     }
     logActivity(`Cancelled build #${idParam(req)}`, who(req));
+    return { ok: true };
+  });
+  // Manual builds: download the prompt to build it yourself, then mark it as made.
+  app.get('/api/jobs/:id/prompt', async (req, reply) => {
+    const j = db.prepare('SELECT title, prompt FROM jobs WHERE id = ?').get(idParam(req)) as { title: string; prompt: string } | undefined;
+    if (!j) return reply.code(404).send({ error: 'not found' });
+    const name = j.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'build';
+    reply.header('content-type', 'text/markdown; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="${name}.md"`);
+    return `# ${j.title}
+
+${j.prompt}
+`;
+  });
+  app.post('/api/jobs/:id/made', async (req) => {
+    const r = db.prepare(`UPDATE jobs SET status = 'done', finished_at = ?, summary = 'Made manually' WHERE id = ? AND status = 'manual'`).run(now(), idParam(req));
+    if (r.changes) logActivity(`Marked build #${idParam(req)} as made`, who(req));
+    return { ok: true };
+  });
+  // "The system is made, the video is not": tracks per build whether its video exists.
+  app.post('/api/jobs/:id/video', async (req) => {
+    const done = (req.body as { done?: boolean }).done ? 1 : 0;
+    db.prepare(`UPDATE jobs SET video_done = ? WHERE id = ? AND kind = 'build'`).run(done, idParam(req));
     return { ok: true };
   });
   app.post('/api/jobs/:id/retry', async (req) => {
