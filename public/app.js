@@ -1412,7 +1412,7 @@ function jobRow(j, isRunning, i = 0, n = 0) {
     <div style="min-width:0;flex:1"><div>${isRunning ? '<span class="tag dark">building</span>' : `<span class="muted">${i + 1}.</span>`} <a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a></div>
       <div class="small muted">${j.kind === 'analysis' ? '<span class="tag">daily AI</span>' : ''}${isRunning ? `on ${esc(j.machine)} · ${ago(j.started_at)}` : `added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}${j.summary ? ` · ${esc(j.summary)}` : ''}`}</div></div>
     <div class="row">${isRunning ? '' : `<button data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button data-act="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>`}
-      ${isRunning ? '' : `<select data-manual aria-label="Do it manually"><option value="">Manual ▾</option><option value="download">⬇ Download prompt (build it myself)</option><option value="made">✓ Mark as made</option></select>`}
+      ${isRunning ? '' : `<select data-manual class="btn-select" aria-label="Do it manually"><option value="">Manual…</option><option value="download">Download prompt</option><option value="made">Mark as made</option></select>`}
       <button data-act="cancel">Cancel</button></div></li>`;
 }
 
