@@ -1311,9 +1311,7 @@ async function build(sub) {
           <h2>New build prompt</h2>
           <label>Title <input name="title" placeholder="e.g. Pet system v1"></label>
           <label>Prompt for Claude on the build machine <textarea name="prompt" rows="8" required placeholder="What should be built in UEFN? Be specific: devices, UI, behaviour, how to test it."></textarea></label>
-          <label>Who builds it?
-            <select name="mode"><option value="pc">Build PC (automatic, goes in the queue)</option><option value="manual">Manually (I build it myself)</option></select></label>
-          <div class="spread"><label class="check" id="top-wrap"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit" id="job-submit">Add to queue</button></div>
+          <div class="spread"><label class="check"><input type="checkbox" name="top"> Put at the front</label><button class="primary" type="submit">Add to queue</button></div>
         </form>
         <div class="card"><h2 style="margin-bottom:8px">Machines</h2>
           ${machines.map((s) => `<div class="spread"><span><strong>${esc(s.label)}</strong><div class="small muted">${esc(s.detail ?? '')} · ${ago(s.last_seen)}</div></span>${statusBadge(s.status)}</div>`).join('') || empty('No build PC connected yet.')}
@@ -1356,17 +1354,10 @@ async function build(sub) {
       </div>
     </div>`;
 
-  const modeSel = $('#job-form select[name=mode]');
-  modeSel.onchange = () => {
-    const manualMode = modeSel.value === 'manual';
-    $('#top-wrap').hidden = manualMode;
-    $('#job-submit').textContent = manualMode ? 'Save for myself' : 'Add to queue';
-  };
   $('#job-form').onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
-    const isManual = f.get('mode') === 'manual';
-    try { await api('/api/jobs', { json: { title: f.get('title'), prompt: f.get('prompt'), top: !isManual && !!f.get('top'), manual: isManual } }); toast(isManual ? 'Saved. Download the prompt below' : 'Added to the queue'); build(); }
+    try { await api('/api/jobs', { json: { title: f.get('title'), prompt: f.get('prompt'), top: !!f.get('top') } }); toast('Added to the queue'); build(); }
     catch (err) { toast(err.message); }
   };
   view.querySelectorAll('[data-job] [data-act]').forEach((btn) => {
@@ -1379,6 +1370,25 @@ async function build(sub) {
         if (act === 'retry') await api(`/api/jobs/${id}/retry`, { json: {} });
         if (act === 'made') await api(`/api/jobs/${id}/made`, { json: {} });
         if (act === 'video-on' || act === 'video-off') await api(`/api/jobs/${id}/video`, { json: { done: act === 'video-on' } });
+        build(sub);
+      } catch (err) { toast(err.message); }
+    };
+  });
+  // "Manual" dropdown on a queued build: build it yourself instead of on the build PC.
+  view.querySelectorAll('[data-job] [data-manual]').forEach((sel) => {
+    sel.onchange = async () => {
+      const id = sel.closest('[data-job]').dataset.job;
+      const choice = sel.value;
+      sel.value = '';
+      try {
+        if (choice === 'download') {
+          if (!confirm('Build this yourself? It leaves the queue, so the build PC will not build it.')) return;
+          await api(`/api/jobs/${id}/manual`, { json: {} });
+          const a = document.createElement('a');
+          a.href = `api/jobs/${id}/prompt`; a.download = ''; a.click();
+          toast('Prompt downloaded. Press Made when you are done');
+        }
+        if (choice === 'made') await api(`/api/jobs/${id}/made`, { json: {} });
         build(sub);
       } catch (err) { toast(err.message); }
     };
@@ -1402,6 +1412,7 @@ function jobRow(j, isRunning, i = 0, n = 0) {
     <div style="min-width:0;flex:1"><div>${isRunning ? '<span class="tag dark">building</span>' : `<span class="muted">${i + 1}.</span>`} <a href="#build/${j.id}"><strong>${esc(j.title)}</strong></a></div>
       <div class="small muted">${j.kind === 'analysis' ? '<span class="tag">daily AI</span>' : ''}${isRunning ? `on ${esc(j.machine)} · ${ago(j.started_at)}` : `added by ${esc(j.created_by ?? '?')} ${ago(j.created_at)}${j.summary ? ` · ${esc(j.summary)}` : ''}`}</div></div>
     <div class="row">${isRunning ? '' : `<button data-act="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button><button data-act="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">↓</button>`}
+      ${isRunning ? '' : `<select data-manual aria-label="Do it manually"><option value="">Manual ▾</option><option value="download">⬇ Download prompt (build it myself)</option><option value="made">✓ Mark as made</option></select>`}
       <button data-act="cancel">Cancel</button></div></li>`;
 }
 

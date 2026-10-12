@@ -331,10 +331,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
     ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, position, finished_at DESC LIMIT 200`).all());
   app.get('/api/jobs/:id', async (req) => db.prepare('SELECT * FROM jobs WHERE id = ?').get(idParam(req)));
   app.post('/api/jobs', async (req, reply) => {
-    const b = req.body as { title?: string; prompt?: string; top?: boolean; manual?: boolean };
+    const b = req.body as { title?: string; prompt?: string; top?: boolean };
     if (!b.prompt?.trim()) return reply.code(400).send({ error: 'prompt required' });
     const title = b.title?.trim() || b.prompt.trim().split('\n')[0].slice(0, 80);
-    return { id: addJob(title, b.prompt.trim(), who(req), null, !!b.top, 'build', null, !!b.manual) };
+    return { id: addJob(title, b.prompt.trim(), who(req), null, !!b.top) };
   });
   app.post('/api/jobs/:id/move', async (req) => { moveJob(idParam(req), (req.body as { dir: 'up' | 'down' }).dir); return { ok: true }; });
   app.post('/api/jobs/:id/cancel', async (req) => {
@@ -346,7 +346,13 @@ export async function dashboardRoutes(app: FastifyInstance) {
     logActivity(`Cancelled build #${idParam(req)}`, who(req));
     return { ok: true };
   });
-  // Manual builds: download the prompt to build it yourself, then mark it as made.
+  // Manual builds: take a queued build out of the queue (the build PC only claims 'queued'), download its prompt, build it
+  // yourself, then mark it as made. "Made" also works straight from the queue.
+  app.post('/api/jobs/:id/manual', async (req) => {
+    const r = db.prepare(`UPDATE jobs SET status = 'manual', machine = NULL WHERE id = ? AND status = 'queued'`).run(idParam(req));
+    if (r.changes) logActivity(`Build #${idParam(req)} taken out of the queue: building it manually`, who(req));
+    return { ok: true };
+  });
   app.get('/api/jobs/:id/prompt', async (req, reply) => {
     const j = db.prepare('SELECT title, prompt FROM jobs WHERE id = ?').get(idParam(req)) as { title: string; prompt: string } | undefined;
     if (!j) return reply.code(404).send({ error: 'not found' });
@@ -359,7 +365,7 @@ ${j.prompt}
 `;
   });
   app.post('/api/jobs/:id/made', async (req) => {
-    const r = db.prepare(`UPDATE jobs SET status = 'done', finished_at = ?, summary = 'Made manually' WHERE id = ? AND status = 'manual'`).run(now(), idParam(req));
+    const r = db.prepare(`UPDATE jobs SET status = 'done', finished_at = ?, summary = 'Made manually' WHERE id = ? AND status IN ('manual', 'queued')`).run(now(), idParam(req));
     if (r.changes) logActivity(`Marked build #${idParam(req)} as made`, who(req));
     return { ok: true };
   });

@@ -13,14 +13,13 @@ export interface Job {
 const MAX_LOG = 200_000;
 
 export function addJob(title: string, prompt: string, who: string, ideaId: number | null = null, top = false,
-  kind: 'build' | 'analysis' = 'build', reportId: number | null = null, manual = false) {
+  kind: 'build' | 'analysis' = 'build', reportId: number | null = null) {
   const edge = db.prepare(`SELECT ${top ? 'MIN' : 'MAX'}(position) p FROM jobs WHERE status = 'queued'`).get() as { p: number | null };
   const position = edge.p === null ? 1000 : top ? edge.p - 1 : edge.p + 1;
-  // A manual build never enters the queue: the build PC only claims 'queued' jobs.
-  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id, kind, report_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(now(), who, title, prompt, manual ? 0 : position, ideaId, kind, reportId, manual ? 'manual' : 'queued').lastInsertRowid);
+  const id = Number(db.prepare(`INSERT INTO jobs (created_at, created_by, title, prompt, position, idea_id, kind, report_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(now(), who, title, prompt, position, ideaId, kind, reportId).lastInsertRowid);
   if (ideaId) db.prepare(`UPDATE ideas SET status = 'queued' WHERE id = ?`).run(ideaId);
-  if (kind === 'build') logActivity(manual ? `Added manual build "${title}"` : `Queued build "${title}"`, who);
+  if (kind === 'build') logActivity(`Queued build "${title}"`, who);
   return id;
 }
 
