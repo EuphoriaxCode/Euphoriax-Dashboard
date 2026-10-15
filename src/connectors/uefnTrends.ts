@@ -15,6 +15,22 @@ const SOURCE_NAMES: Record<string, string> = {
   steam: 'Steam', roblox: 'Roblox', fortnite: 'Fortnite', reddit: 'Reddit', googleTrends: 'Google Trends', 'google-trends': 'Google Trends', kym: 'Know Your Meme', knowYourMeme: 'Know Your Meme',
 };
 
+/**
+ * Streams a download (CSV / NDJSON / gzip) from the engine's admin export API. No timeout: the whole
+ * database can take minutes; `signal` aborts the upstream request when the browser goes away.
+ */
+export async function trendsDownload(path: string, signal: AbortSignal): Promise<Response> {
+  if (!config.uefnTrends.adminKey) throw new Error('Add the UEFN Trends API_ADMIN_KEY on the Setup page to download data');
+  const res = await fetch(`${config.uefnTrends.url}${path}`, { headers: { 'x-api-key': config.uefnTrends.adminKey }, signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let msg = text.slice(0, 200);
+    try { msg = JSON.parse(text).error ?? msg; } catch { /* not json */ }
+    throw new Error(res.status === 401 || res.status === 403 ? `${res.status}: wrong key (${msg})` : msg || `HTTP ${res.status}`);
+  }
+  return res;
+}
+
 export const uefnTrends: Connector = {
   name: 'UEFN Trends',
   platform: 'uefn',
@@ -25,7 +41,7 @@ export const uefnTrends: Connector = {
       ON CONFLICT(key) DO UPDATE SET json = excluded.json, ts = excluded.ts`);
     const top = await trendsApi('/api/v1/trends/top');
     save.run('top', JSON.stringify(top), now());
-    for (const [key, path] of [['latest', '/api/v1/trends/latest'], ['report', '/api/v1/reports/latest'], ['status', '/api/v1/status']]) {
+    for (const [key, path] of [['latest', '/api/v1/trends/latest'], ['report', '/api/v1/reports/latest'], ['weekly', '/api/v1/reports/weekly/latest'], ['status', '/api/v1/status']]) {
       try { save.run(key, JSON.stringify(await trendsApi(path)), now()); } catch { /* optional */ }
     }
 
