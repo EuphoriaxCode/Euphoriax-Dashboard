@@ -3,12 +3,13 @@ import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { extname, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { removeUser, requireUser, setPassword, userNames } from '../auth.js';
 import { config, env } from '../config.js';
 import { connectors, collectAll, collectOne } from '../connectors/index.js';
 import { buddy, buddyCache, buddyList, discordLink, refreshBuddy } from '../connectors/buddy.js';
-import { trendsApi } from '../connectors/uefnTrends.js';
+import { trendsApi, trendsDownload, uefnTrends } from '../connectors/uefnTrends.js';
 import { publicSettings, saveSettings } from '../settings.js';
 import {
   contentPerformance, historyDays, latestMetrics, topProducts, metricHistory, products, questionKeywords, recentSales, recentSignals, services, signalKeywords,
@@ -228,6 +229,39 @@ export async function dashboardRoutes(app: FastifyInstance) {
       });
     return { ok: true };
   });
+  // Rebuilds this week's analysis from the latest data (no Discord post, no AI), then refreshes our copy.
+  app.post('/api/trends/run-weekly', async (req) => {
+    const r = await trendsApi<{ status?: string; error?: string }>('/api/v1/admin/jobs/report:weekly-refresh/run', { method: 'POST', body: {} });
+    if (r.status !== 'ok') throw new Error(`UEFN Trends could not make the weekly analysis (${r.error ?? r.status ?? 'unknown'})`);
+    await collectOne(uefnTrends);
+    logActivity('Made a fresh UEFN Trends weekly analysis', who(req));
+    return { ok: true };
+  });
+
+  // ---------- UEFN Trends data download (proxied, so the admin key never reaches the browser) ----------
+  app.get('/api/trends/export', async () => trendsApi('/api/v1/admin/export'));
+  app.get('/api/trends/export/:table', async (req, reply) => {
+    const { table } = req.params as { table: string };
+    const q = req.query as { format?: string; gzip?: string; days?: string };
+    if (!/^[A-Za-z]{1,60}$/.test(table)) return reply.code(400).send({ error: 'Unknown table' });
+    const params = new URLSearchParams();
+    if (q.format === 'csv' || q.format === 'ndjson') params.set('format', q.format);
+    if (q.gzip === '1') params.set('gzip', '1');
+    if (q.days && /^\d{1,4}$/.test(q.days) && Number(q.days) > 0) params.set('days', q.days);
+    const abort = new AbortController();
+    reply.raw.on('close', () => abort.abort());
+    let res: Response;
+    try {
+      res = await trendsDownload(`/api/v1/admin/export/${table}${params.size ? `?${params}` : ''}`, abort.signal);
+    } catch (err) {
+      return reply.code(502).type('text/plain').send(`Download failed: ${(err as Error).message}`);
+    }
+    for (const h of ['content-type', 'content-disposition']) { const v = res.headers.get(h); if (v) reply.header(h, v); }
+    reply.header('cache-control', 'no-store');
+    logActivity(`Downloaded UEFN Trends data: ${table === 'all' ? 'everything' : table}${q.days ? ` (last ${q.days} days)` : ''}`, who(req));
+    return reply.send(Readable.fromWeb(res.body as any));
+  });
+
   app.post('/api/trends/watch', async (req) => {
     const b = req.body as { kind: string; value: string };
     await trendsApi('/api/v1/watchlist', { method: 'POST', body: { kind: b.kind, value: b.value, note: `added by ${who(req)}` } });
@@ -280,7 +314,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const rows = recentSignals(days, 500).filter((s) => !q.kind || s.kind === q.kind);
     return { signals: rows, keywords: signalKeywords(days, 40) };
   });
-  app.get('/api/trends', async () => ({ top: trends('top'), latest: trends('latest'), report: trends('report'), status: trends('status') }));
+  app.get('/api/trends', async () => ({ top: trends('top'), latest: trends('latest'), report: trends('report'), weekly: trends('weekly'), status: trends('status') }));
 
   // ---------- AI ----------
   app.get('/api/reports', async () => {

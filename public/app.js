@@ -817,7 +817,14 @@ async function trendsPage(el) {
         ${(top?.memes ?? []).length ? `<ul class="list">${top.memes.map((b) => `<li class="spread"><span>${esc(b.name ?? b.title ?? b.slug)} <span class="small muted">${esc(b.source ?? '')}</span></span><span class="num">${b.momentum ?? b.score ?? ''}</span></li>`).join('')}</ul>` : empty('No memes.')}
       </div>
     </div>
-    ${report ? `<div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest trend report${report.generatedAt ? ` · ${when(new Date(report.generatedAt).getTime())}` : ''}</h2><div class="log">${esc(typeof report === 'string' ? report : report.discordText ?? report.text ?? JSON.stringify(report, null, 2))}</div></div>` : ''}`;
+    ${weeklyCard(d.weekly?.data, !!d.top)}
+    ${report ? `<div class="card" style="margin-top:16px"><h2 style="margin-bottom:8px">Latest trend report${report.generatedAt ? ` · ${when(new Date(report.generatedAt).getTime())}` : ''}</h2><div class="log">${esc(typeof report === 'string' ? report : report.discordText ?? report.text ?? JSON.stringify(report, null, 2))}</div></div>` : ''}
+    <div class="card" style="margin-top:16px" id="trends-download">${d.top ? '<div class="small muted">Loading the data list…</div>' : empty('Connect UEFN Trends in Setup to download its data.')}</div>`;
+  if (d.top) loadTrendDownloads($('#trends-download'));
+  $('#run-weekly')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try { await api('/api/trends/run-weekly', { json: {} }); toast('Weekly analysis updated'); trendsPage(el); } catch (err) { toast(err.message); e.target.disabled = false; }
+  });
   $('#watch-form').onsubmit = async (e) => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
@@ -832,6 +839,68 @@ async function trendsPage(el) {
     try { await api('/api/trends/repost', { json: {} }); toast('Posting to Discord - it shows up within a minute.'); } catch (err) { toast(err.message); }
     setTimeout(() => { e.target.disabled = false; }, 60_000);
   };
+}
+
+const STAGE = { EARLY: 'very early', EMERGING: 'emerging', ACCELERATING: 'accelerating', MAINSTREAM: 'mainstream', SATURATED: 'crowded', DECLINING: 'declining' };
+const plat = (p) => ({ steam: 'Steam', roblox: 'Roblox', fortnite: 'Fortnite', reddit: 'Reddit', 'google-trends': 'Google Trends', kym: 'Know Your Meme' }[p] ?? p);
+
+function weeklyCard(w, connected) {
+  const head = `<div class="spread" style="margin-bottom:8px"><h2>Weekly analysis${w ? ` · ${esc(w.periodStart)} → ${esc(w.periodEnd)}` : ''}</h2>
+    ${connected ? '<button type="button" id="run-weekly">Fresh weekly analysis</button>' : ''}</div>`;
+  if (!w) return `<div class="card" style="margin-top:16px">${head}${empty('No weekly analysis yet. It is made every Monday morning, or press "Fresh weekly analysis".')}</div>`;
+  const move = (c) => `<li class="spread"><span><strong>${esc(c.name)}</strong> <span class="small muted">${esc(STAGE[c.lifecycleNow] ?? '')}</span></span>
+    <span class="num">${c.scoreBefore !== null ? `${Math.round(c.scoreBefore)} → ` : ''}${Math.round(c.scoreNow)} <span class="muted">(${c.delta >= 0 ? '+' : ''}${Math.round(c.delta)})</span></span></li>`;
+  const block = (title, items) => (items.length ? `<h3 style="margin:12px 0 6px">${title}</h3><ul class="list">${items.join('')}</ul>` : '');
+  const movers = Object.entries(w.platformMovers ?? {}).flatMap(([p, rows]) => rows.map((r) =>
+    `<li class="spread"><span>${esc(plat(p))}: <strong>${esc(r.name)}</strong></span><span class="num">+${Math.round(r.growth7d)}%</span></li>`));
+  const pr = w.predictions ?? {};
+  return `<div class="card" style="margin-top:16px">${head}
+    ${w.pick ? `<p><strong>Pick of the week: ${esc(w.pick.name)}</strong><br><span class="small">${esc(w.pick.reason)}</span></p>` : '<p class="muted">No clear pick this week: nothing early-stage gained ground.</p>'}
+    <p class="small muted">${esc(w.summary)}${w.generatedAt ? ` · made ${esc(when(new Date(w.generatedAt).getTime()))}` : ''}</p>
+    <div class="grid g2">
+      <div>${block('Rising this week', (w.risers ?? []).map(move))}${block('Cooling this week', (w.fallers ?? []).map(move))}
+        ${block('Changed stage', (w.stageChanges ?? []).map((c) => `<li class="spread"><strong>${esc(c.name)}</strong><span class="small">${esc(STAGE[c.from])} → ${esc(STAGE[c.to])}</span></li>`))}
+        ${block('New this week', (w.newTrends ?? []).map((t) => `<li class="spread"><span><strong>${esc(t.name)}</strong> <span class="small muted">${esc(STAGE[t.lifecycle] ?? '')}</span></span><span class="num">${Math.round(t.score)}</span></li>`))}</div>
+      <div>${block('Breakouts', (w.breakouts ?? []).map((b) => `<li class="spread"><span><strong>${esc(b.name)}</strong> <span class="small muted">${esc(plat(b.source))}</span></span><span class="num">${b.growth7d !== null ? `${b.growth7d >= 0 ? '+' : ''}${Math.round(b.growth7d)}%` : b.score}</span></li>`))}
+        ${block('Biggest movers per platform', movers)}
+        ${block('New Fortnite maps per theme', (w.fortniteNewMaps ?? []).map((m) => `<li class="spread"><strong>${esc(m.name)}</strong><span class="num">+${fmt(m.newThisWeek)} <span class="muted">(${fmt(m.maps)})</span></span></li>`))}
+        ${block(`In the daily report (${w.dailyReports ?? 0}×)`, (w.dailyPicks ?? []).map((p) => `<li class="spread"><strong>${esc(p.name)}</strong><span class="small">${p.days}×${p.buildNow ? ` · build now ${p.buildNow}×` : ''}</span></li>`))}
+        ${pr.hitRate !== null && pr.hitRate !== undefined || pr.validatedThisWeek || pr.failedThisWeek ? `<h3 style="margin:12px 0 6px">Track record</h3><p class="small">${pr.validatedThisWeek ?? 0} past picks confirmed, ${pr.failedThisWeek ?? 0} missed this week${pr.hitRate !== null && pr.hitRate !== undefined ? ` · hit rate ${Math.round(pr.hitRate * 100)}%` : ''} · ${pr.open ?? 0} still open</p>` : ''}</div>
+    </div></div>`;
+}
+
+const bytes = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+
+async function loadTrendDownloads(el) {
+  let list;
+  try { list = await api('/api/trends/export'); } catch (err) {
+    el.innerHTML = `<h2 style="margin-bottom:8px">Download data</h2>${empty(esc(err.message))}`;
+    return;
+  }
+  const tables = list.tables ?? [];
+  const totalRows = tables.reduce((s, t) => s + (t.rows ?? 0), 0);
+  el.innerHTML = `<div class="spread" style="margin-bottom:8px"><h2>Download data</h2>
+      <div class="row"><select id="dl-days" style="width:auto" aria-label="Period">
+        <option value="">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select>
+      <a class="btn primary" data-dl="all" href="#">⬇ Download everything</a></div></div>
+    <p class="small muted">Everything UEFN Trends stored on the server: ${fmt(totalRows)} rows, ${bytes(list.totalBytes ?? 0)} in the database.
+      "Everything" is one compressed file (.ndjson.gz, one JSON line per row). Single tables come as CSV (opens in Excel / Google Sheets) or JSON.
+      The period only filters tables with dates; the others always come complete.</p>
+    <div class="table-wrap"><table><tr><th>Table</th><th>What</th><th class="num">Rows</th><th class="num">Size</th><th></th></tr>
+      ${tables.map((t) => `<tr><td><strong>${esc(t.name)}</strong></td><td class="small muted">${esc(t.description)}</td><td class="num">${fmt(t.rows)}</td><td class="num">${bytes(t.bytes ?? 0)}</td>
+        <td style="white-space:nowrap"><a class="btn" data-dl="${esc(t.name)}" data-format="csv" href="#">CSV</a> <a class="btn" data-dl="${esc(t.name)}" data-format="ndjson" href="#">JSON</a></td></tr>`).join('')}
+    </table></div>`;
+  // Plain links: the browser streams the file straight to disk, however big it is.
+  el.querySelectorAll('[data-dl]').forEach((a) => a.addEventListener('click', () => {
+    const days = $('#dl-days').value;
+    const p = new URLSearchParams();
+    if (a.dataset.format) p.set('format', a.dataset.format);
+    // big single tables are compressed (the download is ~10x smaller); Excel users pick a period instead
+    if (a.dataset.format === 'ndjson') p.set('gzip', '1');
+    if (days) p.set('days', days);
+    a.href = `api/trends/export/${encodeURIComponent(a.dataset.dl)}${p.size ? `?${p}` : ''}`;
+    toast(a.dataset.dl === 'all' ? 'Download started - the full file can take a few minutes' : 'Download started');
+  }));
 }
 
 async function growthPage(el) {

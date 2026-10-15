@@ -16,7 +16,7 @@ export const SETTINGS: SettingDef[] = [
   { group: 'Discord bots (Bot Buddy)', key: 'DISCORD_GUILD_ID', label: 'Discord server ID (optional)', help: 'Right-click the server icon → Copy Server ID (developer mode on).' },
 
   { group: 'UEFN Trends', key: 'UEFN_TRENDS_URL', label: 'UEFN Trends address', placeholder: 'http://127.0.0.1:3100' },
-  { group: 'UEFN Trends', key: 'UEFN_TRENDS_ADMIN_KEY', label: 'UEFN Trends API_ADMIN_KEY (optional)', secret: true, help: 'Lets you run a trend report and add watchlist items from here.' },
+  { group: 'UEFN Trends', key: 'UEFN_TRENDS_ADMIN_KEY', label: 'UEFN Trends API_ADMIN_KEY (optional)', secret: true, help: 'Lets you run a trend report, add watchlist items and download all trend data from here.' },
 
   { group: 'AI', key: 'AI_ENGINE', label: 'Daily analysis runs on', options: ['openai', 'machine', 'api'], help: 'openai = on the server with your OpenAI key (default, works when the build PC is off). machine = the build PC with your Claude subscription. api = Claude API key. The build PC always builds with Claude.' },
   { group: 'AI', key: 'OPENAI_API_KEY', label: 'OpenAI API key', secret: true, help: 'platform.openai.com/api-keys. Use a prepaid balance without auto-recharge. Also writes the captions for your videos.' },
